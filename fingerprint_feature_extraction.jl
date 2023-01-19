@@ -274,7 +274,7 @@ end
 
 # Function to save the result of the feature extraction
 # Returns nothing
-function save_results(img::Matrix{Bool}, features::Vector{Vector{MinutiaeFeature}}; filename::String="result.png")
+function save_results(img::Matrix{Bool}, features::Vector{Vector{MinutiaeFeature}}, filename::String)
     # Get the image from the show_results function
     img_rgb = show_results(img, features)
     
@@ -284,19 +284,19 @@ end
 
 # Function to save the skeleton of the fingerprint
 # Returns nothing
-function save_skeleton(skeleton::Matrix{Bool}; filename::String="skeleton.png")
+function save_skeleton(skeleton::Matrix{Bool}, filename::String)
     save(filename, Gray.(skeleton))
 end
 
 # Driver function
 # Returns nothing
-function driver(filename::String; show_result::Bool=false, save_result::Bool=true, save_skel::Bool=true)
+function driver(filename::String; save_result::String="", save_skel::String="", show_result::Bool=false)
     # Load an image
     img = load_fingerprint_image(filename);
 
     # Skeletonize the image
     skeleton = skeletonize(img)
-    if save_skel == true save_skeleton(skeleton) end
+    if save_skel != "" save_skeleton(skeleton, save_skel) end
 
     # Get the termination and bifurcation images
     terminations, bifurcations = get_termination_bifurcation(img, skeleton)
@@ -310,8 +310,8 @@ function driver(filename::String; show_result::Bool=false, save_result::Bool=tru
     println("Num of terminations: ", length(features[1]))
     println("Num of bifurcations: ", length(features[2]))
 
-    if save_result == true save_results(skeleton, features) end
     if show_result == true imshow(show_results(skeleton, features)) end
+    if save_result != "" save_results(skeleton, features, save_result) end
 end
 
 # Export the driver function only
