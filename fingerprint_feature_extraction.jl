@@ -1,23 +1,30 @@
 module FingerprintFeatureExtraction
 
+export extract_features
+
 # Libraries for working with images
 using Images
 using ImageDraw
-using ImageView
 using ImageMorphology
 using ImageBinarization
 
 const SPURIOUS_MINUTIAE_THRESH = 20
 
-# Enum for minutiae types
+"""Enum for minutiae types"""
 @enum MinutiaeType begin
     BIFURCATION = 0
     TERMINATION = 1
-    INVALID = -1
 end
 
-# Struct for minutiae features containing the coordinates and the angles.
-struct MinutiaeFeature
+"""
+Struct for minutiae features containing the coordinates and the angles.
+# Fields
+- `x::Int`: X coordinate of the minutiae.
+- `y::Int`: Y coordinate of the minutiae.
+- `θ::Vector{Float64}`: Angles in degrees.
+- `type::MinutiaeType`: Type of the minutiae.
+"""
+struct Minutia
     x::Int
     y::Int
     θ::Vector{Float64} # Angles in degrees
@@ -25,8 +32,12 @@ struct MinutiaeFeature
 end
 
 
-# Loads an image from the given path.
-# Returns a white image on black background.
+"""
+Load an image from the given path.
+Returns a white image on black background.
+# Arguments
+- `path::String`: Path to the image.
+"""
 function load_fingerprint_image(path::String)::Matrix{Bool}
     # Load an image
     img = load(path)
@@ -44,9 +55,14 @@ function load_fingerprint_image(path::String)::Matrix{Bool}
     img
 end
 
-# Denoise an image using "iterations" many morphological operations (open).
-# Returns a denoised copy of the image.
-function denoise_fingerprint(img::Matrix{Bool}; iterations = 1)::Matrix{Bool}
+"""
+Denoise an image using "iterations" many morphological operations (open).
+Returns a denoised copy of the image.
+# Arguments
+- `img::Matrix{Bool}`: Image to denoise.
+- `iterations::Int`: Number of iterations of the morphological operation.
+"""
+function denoise_fingerprint(img::Matrix{Bool}; iterations::Int=1)::Matrix{Bool}
     # Create a copy of the image
     img = copy(img)
 
@@ -59,9 +75,14 @@ function denoise_fingerprint(img::Matrix{Bool}; iterations = 1)::Matrix{Bool}
     img
 end
 
-# Compute the convex hull of the image.
-# Returns a binary image with the convex hull of the image.
-function convex_hull_image(img::Matrix{Bool}, erode = 0)::Matrix{Bool}
+"""
+Compute the convex hull of the image.
+Returns a binary image with the convex hull of the image.
+# Arguments
+- `img::Matrix{Bool}`: Image to compute the convex hull of.
+- `erode::Int`: Number of times to erode the convex hull.
+"""
+function convex_hull_image(img::Matrix{Bool}, erode::Int=0)::Matrix{Bool}
     hull = convexhull(img)
     # Create a mask image
     mask = Gray.(zeros(size(img)))
@@ -94,8 +115,12 @@ function convex_hull_image(img::Matrix{Bool}, erode = 0)::Matrix{Bool}
     mask
 end
 
-# Denoise the image and compute its skeleton.
-# Returns a skeletonized copy of the image.
+"""
+Denoise the image and compute its skeleton.
+Returns a skeletonized copy of the image.
+# Arguments
+- `img::Matrix{Bool}`: Image to skeletonize.
+"""
 function skeletonize(img::Matrix{Bool})::Matrix{Bool}
     # Copy and denoise the image
     img = denoise_fingerprint(img)
@@ -107,9 +132,14 @@ function skeletonize(img::Matrix{Bool})::Matrix{Bool}
     skeleton
 end
 
-# Identify terminations and bifurcations in a skeletonized image.
-# Returns two images, one with the terminations and one with the bifurcations.
-function get_termination_bifurcation(img::Matrix{Bool}, skeleton::Matrix{Bool})::Vector{Matrix{Bool}}
+"""
+Identify terminations and bifurcations in a skeletonized image.
+Returns two images, one with the terminations and one with the bifurcations.
+# Arguments
+- `img::Matrix{Bool}`: Image to identify the terminations and bifurcations in.
+- `skeleton::Matrix{Bool}`: Skeleton of the image.
+"""
+function get_termination_bifurcation(img::Matrix{Bool}, skeleton::Matrix{Bool})::Tuple{Matrix{Bool}, Matrix{Bool}}
     kernel = centered(fill(1, 3, 3))
     block_sum = imfilter(skeleton, kernel) .* skeleton
 
@@ -123,11 +153,15 @@ function get_termination_bifurcation(img::Matrix{Bool}, skeleton::Matrix{Bool}):
     bifurcations = block_sum .== 4
 
     # Return the images
-    [terminations, bifurcations]
+    terminations, bifurcations
 end
 
-# Clean the list of terminations by removing the ones that are too close to each other.
-# Returns the terminations matrix without the spurious ones.
+"""
+Clean the list of terminations by removing the ones that are too close to each other.
+Returns the terminations matrix without the spurious ones.
+# Arguments
+- `terminations::Matrix{Bool}`: Terminations image.
+"""
 function clean_minutiae(terminations::Matrix{Bool})::Matrix{Bool}
     # Label all components in the termination image
     labels = label_components(terminations)
@@ -157,24 +191,30 @@ function clean_minutiae(terminations::Matrix{Bool})::Matrix{Bool}
     terminations
 end
 
-# Function to compute the angle of the minutia feature
-# Returns a vector of angles in degrees
-function compute_angle(block::Matrix{Bool}, min_type::MinutiaeType)
+"""
+Function to compute the angle of the minutia feature.
+Returns a vector of angles in degrees.
+# Arguments
+- `block::Matrix{Bool}`: Block of the image containing the minutia.
+- `min_type::Minutia`: Type of the minutia.
+"""
+function compute_angle(block::Matrix{Bool}, min_type::MinutiaeType)::Union{Nothing, Vector{Float64}}
+    rows, cols = size(block)
+    @assert rows == cols
+
     # Get the coordinates of the center of the block
-    center_x = center_y = size(block, 1) ÷ 2 + 1
+    center_x = center_y = rows ÷ 2 + 1
 
     # Look for all the pixels that are along the borders of the block and that are true
     # and get the angle of that point from the center point (which will always be true)
 
     # Filter all the positions in block that lie in the border of the block itself
-    positions = [(x, y) for x in 1:size(block, 2), y in 1:size(block, 1) 
-        if (x == 1 || x == size(block, 2) || y == 1 || y == size(block, 1)) && block[y, x] != 0]
+    positions = [(x, y) for x in 1:cols, y in 1:rows
+        if (x == 1 || x == cols || y == 1 || y == rows) && block[y, x] != 0]
     
     if min_type == TERMINATION
         # If there are more or less than one angle found, then the minutia is not a termination
-        if length(positions) != 1 
-            return INVALID 
-        end
+        length(positions) != 1 && return nothing
 
         # Return the angle of the found point
         angle = -atand(positions[1][2] - center_y, positions[1][1] - center_x)
@@ -182,9 +222,7 @@ function compute_angle(block::Matrix{Bool}, min_type::MinutiaeType)
         
     elseif min_type == BIFURCATION
         # If there are more or less than three angles found, then the minutia is not a bifurcation
-        if length(positions) != 3 
-            return INVALID 
-        end
+        length(positions) != 3 && return nothing
 
         # Return the angle of the found points
         angle1 = -atand(positions[1][2] - center_y, positions[1][1] - center_x)
@@ -194,9 +232,19 @@ function compute_angle(block::Matrix{Bool}, min_type::MinutiaeType)
     end
 end
 
-# Function to perform the feature extraction
-# Returns a vector of MinutiaeFeature
-function perform_feature_extraction(terminations::Matrix{Bool}, bifurcations::Matrix{Bool}, skeleton::Matrix{Bool})::Vector{Vector{MinutiaeFeature}}
+"""
+Function to perform the feature extraction.
+Returns a vector of MinutiaeFeature.
+# Arguments
+- `terminations::Matrix{Bool}`: Terminations image.
+- `bifurcations::Matrix{Bool}`: Bifurcations image.
+- `skeleton::Matrix{Bool}`: Skeleton image.
+"""
+function perform_feature_extraction(
+    terminations::Matrix{Bool}, 
+    bifurcations::Matrix{Bool}, 
+    skeleton::Matrix{Bool}
+)::Tuple{Vector{Minutia}, Vector{Minutia}}
     ## TERMINATIONS
     feature_terminations = []
     block_size = 2
@@ -213,8 +261,8 @@ function perform_feature_extraction(terminations::Matrix{Bool}, bifurcations::Ma
         # Compute the angle of the block
         angle = compute_angle(block, TERMINATION)
         # Add the feature to the list if the angle is valid
-        if angle != INVALID 
-            push!(feature_terminations, MinutiaeFeature(x, y, angle, TERMINATION)) 
+        if angle !== nothing 
+            push!(feature_terminations, Minutia(x, y, angle, TERMINATION)) 
         end
     end
 
@@ -234,18 +282,28 @@ function perform_feature_extraction(terminations::Matrix{Bool}, bifurcations::Ma
         # Compute the angle of the block
         angle = compute_angle(block, BIFURCATION)
         # Add the feature to the list if the angle is valid
-        if angle != INVALID 
-            push!(feature_bifurcations, MinutiaeFeature(x, y, angle, BIFURCATION))
+        if angle !== nothing 
+            push!(feature_bifurcations, Minutia(x, y, angle, BIFURCATION))
         end
     end
 
     # Return the list of features
-    [feature_terminations, feature_bifurcations]
+    feature_terminations, feature_bifurcations
 end
 
-# Function to show the result of the feature extraction
-# Returns a new image in RGB space
-function show_results(img::Matrix{Bool}, features::Vector{Vector{MinutiaeFeature}})::Matrix{ColorTypes.RGB{Float64}}
+"""
+Function to show the result of the feature extraction.
+Returns a new image in RGB space.
+# Arguments
+- `img::Matrix{Bool}`: Original image.
+- `terminations::Vector{Minutia}`: Terminations features.
+- `bifurcations::Vector{Minutia}`: Bifurcations features.
+"""
+function create_minutiae_image(
+    img::Matrix{Bool}, 
+    terminations::Vector{Minutia}, 
+    bifurcations::Vector{Minutia}
+)::Matrix{ColorTypes.RGB{Float64}}
     # Create a new image in RGB space
     img_rgb = zeros(RGB{Float64}, size(img, 1), size(img, 2))
 
@@ -255,48 +313,55 @@ function show_results(img::Matrix{Bool}, features::Vector{Vector{MinutiaeFeature
     end
 
     # Mark the termination features using a red box of size 1
-    for termination in features[1]
-        for x in termination.x - 1:termination.x + 1, y in termination.y - 1:termination.y + 1
-            img_rgb[y, x] = RGB(1, 0, 0)
-        end
+    for t in terminations
+        img_rgb[t.y-1:t.y+1, t.x-1:t.x+1] .= RGB(1, 0, 0)
     end
 
     # Mark the bifurcation features using a blue box of size 1
-    for bifurcation in features[2]
-        for x in bifurcation.x - 1:bifurcation.x + 1, y in bifurcation.y - 1:bifurcation.y + 1
-            img_rgb[y, x] = RGB(0, 0, 1)
-        end
+    for b in bifurcations
+        img_rgb[b.y-1:b.y+1, b.x-1:b.x+1] .= RGB(0, 0, 1)
     end
     
     # Show the image
-    RGB.(img_rgb)
+    img_rgb
 end
 
-# Function to save the result of the feature extraction
-# Returns nothing
-function save_results(img::Matrix{Bool}, features::Vector{Vector{MinutiaeFeature}}, filename::String)
-    # Get the image from the show_results function
-    img_rgb = show_results(img, features)
-    
-    # Save the image
-    save(filename, RGB.(img_rgb))
-end
-
-# Function to save the skeleton of the fingerprint
-# Returns nothing
-function save_skeleton(skeleton::Matrix{Bool}, filename::String)
-    save(filename, Gray.(skeleton))
-end
-
-# Driver function
-# Returns nothing
-function driver(filename::String; save_result::String="", save_skel::String="", show_result::Bool=false)
+"""
+Extract fingerprint features from an image file given its path.
+# Arguments
+- `filename::String`: The path to the image file.
+- `save_result::String`: The path to save the result image, if empty no image will be saved.
+- `save_skel::String`: The path to save the skeleton image, if empty no image will be saved.
+- `verbose::Bool`: If true, the extraction results will be shown.
+"""
+function extract_features(
+    filename::String; 
+    save_result::String="", 
+    save_skel::String="", 
+    verbose::Bool=false
+)::Tuple{Vector{Minutia}, Vector{Minutia}}
     # Load an image
-    img = load_fingerprint_image(filename);
+    img = load_fingerprint_image(filename)
+    extract_features(img; save_result=save_result, save_skel=save_skel, verbose=verbose)
+end
 
+"""
+Extract the fingerprint features given a boolean matrix representing a fingerprint image.
+# Arguments
+- `img::Matrix{Bool}`: The fingerprint image.
+- `save_result::String`: The path to save the result image, if empty no image will be saved.
+- `save_skel::String`: The path to save the skeleton image, if empty no image will be saved.
+- `verbose::Bool`: If true, the extraction results will be shown.
+"""
+function extract_features(
+    img::Matrix{Bool}; 
+    save_result::String="", 
+    save_skel::String="", 
+    verbose::Bool=false
+)::Tuple{Vector{Minutia}, Vector{Minutia}}
     # Skeletonize the image
     skeleton = skeletonize(img)
-    if save_skel != "" save_skeleton(skeleton, save_skel) end
+    save_skel != "" && save(save_skel, skeleton)
 
     # Get the termination and bifurcation images
     terminations, bifurcations = get_termination_bifurcation(img, skeleton)
@@ -305,16 +370,15 @@ function driver(filename::String; save_result::String="", save_skel::String="", 
     clean_terminations = clean_minutiae(terminations)
 
     # Perform the feature extraction
-    features = perform_feature_extraction(clean_terminations, bifurcations, skeleton)
+    terminations, bifurcations = perform_feature_extraction(clean_terminations, bifurcations, skeleton)
+    verbose && println("Extracted features -> T=$(length(terminations)), B=$(length(bifurcations))")
 
-    println("Num of terminations: ", length(features[1]))
-    println("Num of bifurcations: ", length(features[2]))
+    if save_result != ""
+        img_rgb = create_minutiae_image(img, terminations, bifurcations)
+        save(save_result, img_rgb)
+    end
 
-    if show_result == true imshow(show_results(skeleton, features)) end
-    if save_result != "" save_results(skeleton, features, save_result) end
+    terminations, bifurcations
 end
-
-# Export the driver function only
-export driver
 
 end # module
