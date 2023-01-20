@@ -56,26 +56,6 @@ function load_fingerprint_image(path::String)::Matrix{Bool}
 end
 
 """
-Denoise an image using "iterations" many morphological operations (open).
-Returns a denoised copy of the image.
-# Arguments
-- `img::Matrix{Bool}`: Image to denoise.
-- `iterations::Int`: Number of iterations of the morphological operation.
-"""
-function denoise_fingerprint(img::Matrix{Bool}; iterations::Int=1)::Matrix{Bool}
-    # Create a copy of the image
-    img = copy(img)
-
-    # Denoise the image
-    for _ in 1:iterations
-        img = opening(img)
-    end
-
-    # Return the image
-    img
-end
-
-"""
 Compute the convex hull of the image.
 Returns a binary image with the convex hull of the image.
 # Arguments
@@ -122,9 +102,6 @@ Returns a skeletonized copy of the image.
 - `img::Matrix{Bool}`: Image to skeletonize.
 """
 function skeletonize(img::Matrix{Bool})::Matrix{Bool}
-    # Copy and denoise the image
-    img = denoise_fingerprint(img)
-
     # Create the skeleton
     skeleton = thinning(img)
 
@@ -162,9 +139,9 @@ Returns the terminations matrix without the spurious ones.
 # Arguments
 - `terminations::Matrix{Bool}`: Terminations image.
 """
-function clean_minutiae(terminations::Matrix{Bool})::Matrix{Bool}
+function clean_minutiae(minutiae::Matrix{Bool})::Matrix{Bool}
     # Label all components in the termination image
-    labels = label_components(terminations)
+    labels = label_components(minutiae)
 
     # Get the centroid of each component 
     # (omit the first one containing the centroid for the background)
@@ -182,13 +159,13 @@ function clean_minutiae(terminations::Matrix{Bool})::Matrix{Bool}
     end
 
     # Convert the set of points to a new matrix of bool
-    terminations = zeros(Bool, size(terminations))
+    output_minutiae = zeros(Bool, size(minutiae))
     for (x, y) in centroids_min
-        terminations[y, x] = true
+        output_minutiae[y, x] = true
     end
 
     # Return the new matrix
-    terminations
+    output_minutiae
 end
 
 """
@@ -368,9 +345,10 @@ function extract_features(
 
     # Clean the minutiae
     clean_terminations = clean_minutiae(terminations)
+    clean_bifurcations = clean_minutiae(bifurcations)
 
     # Perform the feature extraction
-    terminations, bifurcations = perform_feature_extraction(clean_terminations, bifurcations, skeleton)
+    terminations, bifurcations = perform_feature_extraction(clean_terminations, clean_bifurcations, skeleton)
     verbose && println("Extracted features -> T=$(length(terminations)), B=$(length(bifurcations))")
 
     if save_result != ""
