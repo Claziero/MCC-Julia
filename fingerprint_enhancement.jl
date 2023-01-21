@@ -1,13 +1,4 @@
-module FingerprintEnhancement
-
 # TODO Add credits to paper and original code authors
-
-using Images
-using ImageFiltering
-using Statistics
-using ImageTransformations
-
-export enhance_fingerprints, FingerprintEnhancementOptions
 
 
 """
@@ -304,6 +295,3 @@ function enhance_fingerprints(input_image::Matrix{T}; opts::FingerprintEnhanceme
 end
 
 
-
-
-end # module

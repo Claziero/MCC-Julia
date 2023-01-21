@@ -1,13 +1,3 @@
-module FingerprintFeatureExtraction
-
-export extract_features
-
-# Libraries for working with images
-using Images
-using ImageDraw
-using ImageMorphology
-using ImageBinarization
-
 const SPURIOUS_MINUTIAE_THRESH = 20
 
 """Enum for minutiae types"""
@@ -358,5 +348,3 @@ function extract_features(
 
     terminations, bifurcations
 end
-
-end # module
