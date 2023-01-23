@@ -11,6 +11,7 @@ using SpecialFunctions: erf
 
 export enhance_fingerprints, FingerprintEnhancementOptions
 export extract_features
+export cylinder_set
 
 include("./fingerprint_enhancement.jl")
 include("./fingerprint_feature_extraction.jl")

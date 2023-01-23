@@ -228,7 +228,7 @@ Create a cylinder for the minutia `m`.
 - `m::Minutia`: The minutia feature.
 - `minutiae::Vector{Minutia}`: The set of minutiae of the image.
 """
-function cylinder(hull::Matrix, m::Minutia, minutiae::Vector{Minutia}; pms::Parameters=params)::Matrix
+function cylinder(hull::Matrix, m::Minutia, minutiae::Vector{Minutia}; pms::Parameters=params)::Array{Float64, 3}
     cylinder = zeros(pms.NS, pms.NS, pms.ND)
 
     for i in 1:pms.NS, j in 1:pms.NS
@@ -240,7 +240,7 @@ function cylinder(hull::Matrix, m::Minutia, minutiae::Vector{Minutia}; pms::Para
             # The contribution for this cell is set to -1 (invalid) if the point is not valid
             if !isvalid(m, p, hull) 
                 cylinder[i, j, k] = -1.0
-                break
+                continue
             end
             
             # Else compute the contributions of the minutiae in the neighborhood N_p of point p
@@ -260,13 +260,13 @@ Create the cylinder set for the image.
 - `image::Matrix`: The original image.
 - `minutiae::Vector{Minutia}`: The set of minutiae of the image.
 """
-function cylinder_set(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=params)::Vector{Matrix}
+function cylinder_set(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=params)::Vector{Array{Float64, 3}}
     hull = extended_convex_hull_image(image, minutiae; pms)
 
-    cylinder_set = []
-    for i in 1:length(minutiae)
-        push!(cylinder_set, cylinder(hull, minutiae[i], minutiae; pms))
+    set = []
+    for min in minutiae
+        push!(set, cylinder(hull, min, minutiae; pms))
     end
 
-    cylinder_set
+    set
 end
