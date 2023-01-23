@@ -55,21 +55,15 @@ the center of a cell with indices `(i, j)` of the minutia `m`.
 struct Point_ij
     x::Float64
     y::Float64
+
+    Point_ij(p::Vector{Float64}) = new(p[1], p[2])
 end
 
-"""
-Calculate the angle associated with all cells at height `k`.
-Returns the angle in radians dϕ/dk.
-# Parameters:
-- `k::Int64`: The height of the cell.
-- `pms::Parameters`: The parameters of the algorithm.
-"""
-function height2angle(k::Int64; pms::Parameters=params)::Float64
-    -π + (Float64(k) - 0.5) * pms.ΔD
-end
+""" Compute the angle associated with all cells at height `k`. """
+@inline height2angle(k::Int64; pms::Parameters=params) = -π + (Float64(k) - 0.5) * pms.ΔD
 
 """
-Calculate a two-dimensional point corresponding to the center of a cell
+Compute a two-dimensional point corresponding to the center of a cell
 with indices `(i, j)` of the minutia `m`.
 # Parameters:
 - `i::Int64`: The index of the cell along the cuboid base.
@@ -79,23 +73,17 @@ with indices `(i, j)` of the minutia `m`.
 """
 function center(i::Int64, j::Int64, m::Minutia; pms::Parameters=params)::Point_ij
     # TODO θ in the Minutia type should be a single Float64 value instead of a Vector{Float64}
-    tf = [cos(m.θ[1]) sin(m.θ[1]); -sin(m.θ[1]) cos(m.θ[1])]
-    tf = tf * [Float64(i)-(pms.NS+1)/2; Float64(j)-(pms.NS+1)/2] * pms.ΔS + [m.x; m.y]
-    Point_ij(tf[1], tf[2])
+    θ = m.θ[1]
+    rot = [cos(θ) sin(θ); -sin(θ) cos(θ)]
+    tf = rot * [Float64(i)-(pms.NS+1)/2; Float64(j)-(pms.NS+1)/2] * pms.ΔS + [m.x; m.y]
+    Point_ij(tf)
 end
 
-"""
-Calculate the euclidean distance between a minutia and a point.
-# Parameters:
-- `m::Minutia`: The minutia feature.
-- `p::Point`: The point.
-"""
-function dist(m::Minutia, p::Point_ij)::Float64
-    sqrt((m.x - p.x)^2 + (m.y - p.y)^2)
-end
+""" Compute the euclidean distance between a minutia and a point. """
+@inline dist(a::Minutia, b::Point_ij) = sqrt((a.x - b.x)^2 + (a.y - b.y)^2)
 
 """
-Calculate the spatial contribution that the minutia `m_t` gives to cell (i, j, k)
+Compute the spatial contribution that the minutia `m_t` gives to cell (i, j, k)
 represented by the point `point`.
 # Parameters:
 - `m_t::Minutia`: The minutia feature.
@@ -103,9 +91,8 @@ represented by the point `point`.
 - `pms::Parameters`: The parameters of the algorithm.
 """
 function spatial_contribution(m_t::Minutia, point::Point_ij; pms::Parameters=params)::Float64
-    # Calculate the euclidean distance between the minutia and the point
     d = dist(m_t, point)
-    # Calculate the gaussian function of the euclidean distance
+    # Weigh the distance with a gaussian function
     exp(-d^2 / (2 * pms.σS^2)) / (sqrt(2π) * pms.σS)
 end
 
@@ -116,7 +103,7 @@ Compute the difference of two given angles.
 - `θ2::Float64`: The second angle.
 """
 function angles_difference(θ1::Float64, θ2::Float64)::Float64
-    θ1 - θ2 >= -π && θ1 - θ2 < π && return θ1 - θ2
+    -π <= θ1 - θ2 < π && return θ1 - θ2
     θ1 - θ2 < -π && return θ1 - θ2 + 2π
     θ1 - θ2 >= π && return θ1 - θ2 - 2π
 end
@@ -126,16 +113,18 @@ Compute the directional contribution of the minutia `m_t` to the minutia `m`.
 # Parameters:
 - `m_t::Minutia`: The minutia feature.
 - `m::Minutia`: The minutia feature.
-- `angle::Float64`: The angle.
+- `angle::Float64`: The angle at the height of the cylinder.
 - `pms::Parameters`: The parameters of the algorithm.
 """
 function directional_contribution(m_t::Minutia, m::Minutia, angle::Float64; pms::Parameters=params)::Float64
-    # Calculate the directional difference between the two minutiae
     dθ = angles_difference(m.θ[1], m_t.θ[1])
-    # Calculate the difference between the "angle" and the directional difference
     dΦ = angles_difference(angle, dθ)
-    # Calculate the intergral: ∫exp(-t^2 / (2 * σD^2)) dt / (sqrt(2π) * σD) in the range [dΦ - ΔD/2, dΦ + ΔD/2]
-    # TODO
+    # Compute the intergral: 
+    # ∫exp(-t^2 / (2 * σD^2)) dt / (sqrt(2π) * σD) in the range [dΦ - ΔD/2, dΦ + ΔD/2]
+    A = pms.ΔD / 2
+    B = √2 * pms.σD
+
+    0.5(erf((dΦ + A) / B) - erf((dΦ - A) / B))
 end
 
 """
@@ -147,17 +136,17 @@ Check if a point is valid. This function implements ξ(m, p). Returns a boolean 
 - `pms::Parameters`: The parameters of the algorithm.
 """
 function isvalid(m::Minutia, p::Point_ij, extended_hull::Matrix; pms::Parameters=params)::Bool
-    # If the euclidean distance between the minutia and the point is greater than R, 
-    # then the point is invalid
     dist(m, p) > pms.R && return false
-    # If point p is within the extended convex hull, then the point is valid
-    extended_hull[round(Int64, p.y), round(Int64, p.x)] && return true
-    # Otherwise, the point is invalid
-    false
+
+    # If the point is within the convex hull image, it is valid
+    x = round(Int64, p.x)
+    y = round(Int64, p.y)
+    h, w = size(extended_hull)
+    x >= 1 && x <= w && y >= 1 && y <= h && extended_hull[y, x]
 end
 
 """
-Calculate the neighborhood of a point p of the minutia m.
+Compute the neighborhood of a point p of the minutia m.
 # Parameters:
 - `m::Minutia`: The minutia feature.
 - `p::Point`: The point.
@@ -167,32 +156,6 @@ Calculate the neighborhood of a point p of the minutia m.
 function neighborhood(m::Minutia, p::Point_ij, T::Vector{Minutia}; pms::Parameters=params)::Vector{Minutia}
     # Find all minutiae different from m and whose distance is less than 3σS
     filter(m_t -> m_t != m && dist(m_t, p) < 3pms.σS, T)
-end
-
-"""
-Calculate the entire contribution of the minutia m to the point p.
-# Parameters:
-- `m::Minutia`: The minutia feature.
-- `p::Point`: The point.
-- `N_p::Vector{Minutia}`: The neighborhood of the point p.
-- `angle::Float64`: The angle.
-- `extended_hull::Matrix`: The convex hull extended by Ω pixels.
-- `pms::Parameters`: The parameters of the algorithm.
-"""
-function entire_contribution_minutia(
-    m::Minutia,
-    p::Point_ij,
-    N_p::Vector{Minutia},
-    angle::Float64,
-    extended_hull::Matrix;
-    pms::Parameters=params)::Float64
-
-    # Check if the point is valid
-    isvalid(m, p, extended_hull) || return -1.0
-    # Sum all the contributions of the minutiae in the neighborhood N_p of point p
-    v = sum([spatial_contribution(m_t, p; pms) * directional_contribution(m_t, m, angle; pms) for m_t in N_p])
-    # Return the sigmoid function of the sum
-    return 1 / (1 + exp(-pms.τψ * (v - pms.μψ)))
 end
 
 """
@@ -280,4 +243,30 @@ function extended_convex_hull_image(image::Matrix, minutiae::Vector{Minutia}, Ω
     end
 
     Bool.(mask)
+end
+
+"""
+Compute the entire contribution of the minutia m to the point p.
+# Parameters:
+- `m::Minutia`: The minutia feature.
+- `p::Point`: The point.
+- `N_p::Vector{Minutia}`: The neighborhood of the point p.
+- `angle::Float64`: The angle.
+- `extended_hull::Matrix`: The convex hull extended by Ω pixels.
+- `pms::Parameters`: The parameters of the algorithm.
+"""
+function entire_contribution_minutia(
+    m::Minutia,
+    p::Point_ij,
+    N_p::Vector{Minutia},
+    angle::Float64,
+    extended_hull::Matrix;
+    pms::Parameters=params)::Float64
+
+    # Check if the point is valid
+    isvalid(m, p, extended_hull) || return -1.0
+    # Sum all the contributions of the minutiae in the neighborhood N_p of point p
+    v = sum([spatial_contribution(m_t, p; pms) * directional_contribution(m_t, m, angle; pms) for m_t in N_p])
+    # Return the sigmoid function of the sum
+    return 1 / (1 + exp(-pms.τψ * (v - pms.μψ)))
 end

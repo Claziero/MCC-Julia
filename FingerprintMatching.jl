@@ -7,6 +7,7 @@ using ImageTransformations
 using ImageMorphology
 using ImageBinarization
 using Statistics
+using SpecialFunctions: erf
 
 export enhance_fingerprints, FingerprintEnhancementOptions
 export extract_features
