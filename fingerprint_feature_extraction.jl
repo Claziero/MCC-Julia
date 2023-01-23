@@ -11,13 +11,13 @@ Struct for minutiae features containing the coordinates and the angles.
 # Fields
 - `x::Int`: X coordinate of the minutiae.
 - `y::Int`: Y coordinate of the minutiae.
-- `θ::Vector{Float64}`: Angles in degrees.
+- `θ::Vector{Float64}`: Angles in radians.
 - `type::MinutiaeType`: Type of the minutiae.
 """
 struct Minutia
     x::Int
     y::Int
-    θ::Vector{Float64} # Angles in degrees
+    θ::Vector{Float64}
     type::MinutiaeType
 end
 
@@ -184,7 +184,7 @@ function compute_angle(block::Matrix{Bool}, min_type::MinutiaeType)::Union{Nothi
         length(positions) != 1 && return nothing
 
         # Return the angle of the found point
-        angle = -atand(positions[1][2] - center_y, positions[1][1] - center_x)
+        angle = -atan(positions[1][2] - center_y, positions[1][1] - center_x)
         [angle]
         
     elseif min_type == BIFURCATION
@@ -192,9 +192,9 @@ function compute_angle(block::Matrix{Bool}, min_type::MinutiaeType)::Union{Nothi
         length(positions) != 3 && return nothing
 
         # Return the angle of the found points
-        angle1 = -atand(positions[1][2] - center_y, positions[1][1] - center_x)
-        angle2 = -atand(positions[2][2] - center_y, positions[2][1] - center_x)
-        angle3 = -atand(positions[3][2] - center_y, positions[3][1] - center_x)
+        angle1 = -atan(positions[1][2] - center_y, positions[1][1] - center_x)
+        angle2 = -atan(positions[2][2] - center_y, positions[2][1] - center_x)
+        angle3 = -atan(positions[3][2] - center_y, positions[3][1] - center_x)
         [angle1, angle2, angle3]
     end
 end
