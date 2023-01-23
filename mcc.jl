@@ -26,10 +26,10 @@ end
 
 function Parameters(;
     Ω =     20,
-    R =     10,
-    NS =    20,
-    ND =    10,
-    σS =    2,
+    R =     40,
+    NS =    16,
+    ND =    8,
+    σS =    6,
     σD =    2,
     uψ =    2,
     tψ =    2)
@@ -69,13 +69,12 @@ with indices `(i, j)` of the minutia `m`.
 - `i::Int64`: The index of the cell along the cuboid base.
 - `j::Int64`: The index of the cell along the cuboid base.
 - `m::Minutia`: The minutia feature.
-- `pms::Parameters`: The parameters of the algorithm.
 """
 function center(i::Int64, j::Int64, m::Minutia; pms::Parameters=params)::Point_ij
     # TODO θ in the Minutia type should be a single Float64 value instead of a Vector{Float64}
     θ = m.θ[1]
     rot = [cos(θ) sin(θ); -sin(θ) cos(θ)]
-    tf = rot * [Float64(i)-(pms.NS+1)/2; Float64(j)-(pms.NS+1)/2] * pms.ΔS + [m.x; m.y]
+    tf = rot * [i-(pms.NS+1)/2; j-(pms.NS+1)/2] * pms.ΔS + [m.x; m.y]
     Point_ij(tf)
 end
 
@@ -87,8 +86,7 @@ Compute the spatial contribution that the minutia `m_t` gives to cell (i, j, k)
 represented by the point `point`.
 # Parameters:
 - `m_t::Minutia`: The minutia feature.
-- `point::Point`: The point representing the cell.
-- `pms::Parameters`: The parameters of the algorithm.
+- `point::Point_ij`: The point representing the cell.
 """
 function spatial_contribution(m_t::Minutia, point::Point_ij; pms::Parameters=params)::Float64
     d = dist(m_t, point)
@@ -96,12 +94,7 @@ function spatial_contribution(m_t::Minutia, point::Point_ij; pms::Parameters=par
     exp(-d^2 / (2 * pms.σS^2)) / (sqrt(2π) * pms.σS)
 end
 
-"""
-Compute the difference of two given angles.
-# Parameters:
-- `θ1::Float64`: The first angle.
-- `θ2::Float64`: The second angle.
-"""
+""" Compute the difference of two given angles `θ1` and `θ2`. """
 function angles_difference(θ1::Float64, θ2::Float64)::Float64
     -π <= θ1 - θ2 < π && return θ1 - θ2
     θ1 - θ2 < -π && return θ1 - θ2 + 2π
@@ -114,7 +107,6 @@ Compute the directional contribution of the minutia `m_t` to the minutia `m`.
 - `m_t::Minutia`: The minutia feature.
 - `m::Minutia`: The minutia feature.
 - `angle::Float64`: The angle at the height of the cylinder.
-- `pms::Parameters`: The parameters of the algorithm.
 """
 function directional_contribution(m_t::Minutia, m::Minutia, angle::Float64; pms::Parameters=params)::Float64
     dθ = angles_difference(m.θ[1], m_t.θ[1])
@@ -131,9 +123,8 @@ end
 Check if a point is valid. This function implements ξ(m, p). Returns a boolean value.
 # Parameters:
 - `m::Minutia`: The minutia feature.
-- `p::Point`: The point.
+- `p::Point_ij`: The point.
 - `extended_hull::Matrix`: The convex hull extended by Ω pixels.
-- `pms::Parameters`: The parameters of the algorithm.
 """
 function isvalid(m::Minutia, p::Point_ij, extended_hull::Matrix; pms::Parameters=params)::Bool
     dist(m, p) > pms.R && return false
@@ -146,29 +137,14 @@ function isvalid(m::Minutia, p::Point_ij, extended_hull::Matrix; pms::Parameters
 end
 
 """
-Compute the neighborhood of a point p of the minutia m.
-# Parameters:
-- `m::Minutia`: The minutia feature.
-- `p::Point`: The point.
-- `T::Vector{Minutia}`: The set of minutiae of the image.
-- `pms::Parameters`: The parameters of the algorithm.
-"""
-function neighborhood(m::Minutia, p::Point_ij, T::Vector{Minutia}; pms::Parameters=params)::Vector{Minutia}
-    # Find all minutiae different from m and whose distance is less than 3σS
-    filter(m_t -> m_t != m && dist(m_t, p) < 3pms.σS, T)
-end
-
-"""
-Compute the convex hull of the image, extends it by Ω pixels
-perpendicular to each line segment, and fills the resulting
-hull to create a boolean mask image.
+Compute the convex hull of the image, extends it by Ω pixels perpendicular to each
+line segment, and fills the resulting hull to create a boolean mask image.
 # Arguments
 - `image::Matrix`: The original image (just to get the size).
 - `minutiae::Vector{Minutia}`: The minutiae of the image to 
     compute the convex hull of.
-- `Ω::Int64`: The number of pixels to extend the convex hull by.
 """
-function extended_convex_hull_image(image::Matrix, minutiae::Vector{Minutia}, Ω::Int64=20)::Matrix{Bool}
+function extended_convex_hull_image(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=params)::Matrix{Bool}
     minutiae_image = zeros(Bool, size(image))
     for minutia in minutiae
         minutiae_image[minutia.y, minutia.x] = true
@@ -202,9 +178,9 @@ function extended_convex_hull_image(image::Matrix, minutiae::Vector{Minutia}, Ω
         # the intersection between the segment B,B+Δ
         # and the image boundaries
         height, width = size(image)
-        mindist = min(newy, height - newy, newx, width - newx, Ω)
+        mindist = min(newy, height - newy, newx, width - newx, pms.Ω)
     
-        for j in mindist:Ω
+        for j in mindist:pms.Ω
             Δx = round(Int, -j * w[2])
             Δy = round(Int, -j * w[1])
     
@@ -246,27 +222,51 @@ function extended_convex_hull_image(image::Matrix, minutiae::Vector{Minutia}, Ω
 end
 
 """
-Compute the entire contribution of the minutia m to the point p.
+Create a cylinder for the minutia `m`.
 # Parameters:
+- `hull::Matrix`: The convex hull of the image.
 - `m::Minutia`: The minutia feature.
-- `p::Point`: The point.
-- `N_p::Vector{Minutia}`: The neighborhood of the point p.
-- `angle::Float64`: The angle.
-- `extended_hull::Matrix`: The convex hull extended by Ω pixels.
-- `pms::Parameters`: The parameters of the algorithm.
+- `minutiae::Vector{Minutia}`: The set of minutiae of the image.
 """
-function entire_contribution_minutia(
-    m::Minutia,
-    p::Point_ij,
-    N_p::Vector{Minutia},
-    angle::Float64,
-    extended_hull::Matrix;
-    pms::Parameters=params)::Float64
+function cylinder(hull::Matrix, m::Minutia, minutiae::Vector{Minutia}; pms::Parameters=params)::Matrix
+    cylinder = zeros(pms.NS, pms.NS, pms.ND)
 
-    # Check if the point is valid
-    isvalid(m, p, extended_hull) || return -1.0
-    # Sum all the contributions of the minutiae in the neighborhood N_p of point p
-    v = sum([spatial_contribution(m_t, p; pms) * directional_contribution(m_t, m, angle; pms) for m_t in N_p])
-    # Return the sigmoid function of the sum
-    return 1 / (1 + exp(-pms.τψ * (v - pms.μψ)))
+    for i in 1:pms.NS, j in 1:pms.NS
+        # Compute the point and its neighborhood N_p of minutiae
+        p = center(i, j, m; pms)
+        N_p = filter(m_t -> m_t != m && dist(m_t, p) < 3pms.σS, minutiae)
+
+        for k in 1:pms.ND
+            # The contribution for this cell is set to -1 (invalid) if the point is not valid
+            if !isvalid(m, p, hull) 
+                cylinder[i, j, k] = -1.0
+                break
+            end
+            
+            # Else compute the contributions of the minutiae in the neighborhood N_p of point p
+            angle = height2angle(k; pms)
+            v = sum([spatial_contribution(m_t, p; pms) * directional_contribution(m_t, m, angle; pms) for m_t in N_p])
+            cylinder[i, j, k] = 1 / (1 + exp(-pms.τψ * (v - pms.μψ)))
+        end
+    end
+
+    # Return the cylinder
+    cylinder
+end
+
+"""
+Create the cylinder set for the image.
+# Parameters:
+- `image::Matrix`: The original image.
+- `minutiae::Vector{Minutia}`: The set of minutiae of the image.
+"""
+function cylinder_set(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=params)::Vector{Matrix}
+    hull = extended_convex_hull_image(image, minutiae; pms)
+
+    cylinder_set = []
+    for i in 1:length(minutiae)
+        push!(cylinder_set, cylinder(hull, minutiae[i], minutiae; pms))
+    end
+
+    cylinder_set
 end
