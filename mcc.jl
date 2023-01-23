@@ -16,6 +16,8 @@ struct Parameters
     ND::Int64
     σS::Int64
     σD::Int64
+    μψ::Float64
+    τψ::Float64
     ΔS::Float64
     ΔD::Float64
 end
@@ -26,7 +28,9 @@ function Parameters(;
     NS =    20,
     ND =    10,
     σS =    2,
-    σD =    2)
+    σD =    2,
+    uψ =    2,
+    tψ =    2)
     Parameters(
         Ω,
         R,
@@ -34,6 +38,8 @@ function Parameters(;
         ND,
         σS,
         σD,
+        uψ,
+        tψ,
         2R / NS,
         2π / ND)
 end
@@ -94,7 +100,7 @@ represented by the point `point`.
 - `point::Point`: The point representing the cell.
 - `pms::Parameters`: The parameters of the algorithm.
 """
-function spatial_contribution_minutia(m_t::Minutia, point::Point_ij, pms::Parameters=params)::Float64
+function spatial_contribution_minutia(m_t::Minutia, point::Point_ij; pms::Parameters=params)::Float64
     # Calculate the euclidean distance between the minutia and the point
     d = euclidean_distance(m_t, point)
     # Calculate the gaussian function of the euclidean distance
@@ -128,6 +134,63 @@ function directional_contribution_minutia(m_t::Minutia, m::Minutia, angle::Float
     dΦ = angles_difference(angle, dθ)
     # Calculate the intergral: ∫exp(-t^2 / (2 * σD^2)) dt / (sqrt(2π) * σD) in the range [dΦ - ΔD/2, dΦ + ΔD/2]
     # TODO
+end
+
+"""
+Check if a point is valid. This function implements ξ(m, p). Returns a boolean value.
+# Parameters:
+- `m::Minutia`: The minutia feature.
+- `p::Point`: The point.
+- `extended_hull::Matrix`: The convex hull extended by Ω pixels.
+- `pms::Parameters`: The parameters of the algorithm.
+"""
+function isvalid(m::Minutia, p::Point_ij, extended_hull::Matrix; pms::Parameters=params)::Bool
+    # If the euclidean distance between the minutia and the point is greater than R, 
+    # then the point is invalid
+    euclidean_distance(m, p) > pms.R && return false
+    # If point p is within the extended convex hull, then the point is valid
+    extended_hull[round(Int64, p.y), round(Int64, p.x)] && return true
+    # Otherwise, the point is invalid
+    false
+end
+
+"""
+Calculate the neighborhood of a point p of the minutia m.
+# Parameters:
+- `m::Minutia`: The minutia feature.
+- `p::Point`: The point.
+- `T::Vector{Minutia}`: The set of minutiae of the image.
+- `pms::Parameters`: The parameters of the algorithm.
+"""
+function calculate_neighborhood(m::Minutia, p::Point_ij, T::Vector{Minutia}; pms::Parameters=params)::Vector{Minutia}
+    # Find all minutiae different from m and whose distance is less than 3σS
+    filter(m_t -> m_t != m && euclidean_distance(m_t, p) < 3pms.σS, T)
+end
+
+"""
+Calculate the entire contribution of the minutia m to the point p.
+# Parameters:
+- `m::Minutia`: The minutia feature.
+- `p::Point`: The point.
+- `N_p::Vector{Minutia}`: The neighborhood of the point p.
+- `angle::Float64`: The angle.
+- `extended_hull::Matrix`: The convex hull extended by Ω pixels.
+- `pms::Parameters`: The parameters of the algorithm.
+"""
+function entire_contribution_minutia(
+    m::Minutia, 
+    p::Point_ij, 
+    N_p::Vector{Minutia}, 
+    angle::Float64,
+    extended_hull::Matrix; 
+    pms::Parameters=params)::Float64
+
+    # Check if the point is valid
+    isvalid(m, p, extended_hull) || return -1.0
+    # Sum all the contributions of the minutiae in the neighborhood N_p of point p
+    v = sum([spatial_contribution_minutia(m_t, p; pms) * directional_contribution_minutia(m_t, m, angle; pms) for m_t in N_p])
+    # Return the sigmoid function of the sum
+    return 1 / (1 + exp(-pms.τψ * (v - pms.μψ)))
 end
 
 """
