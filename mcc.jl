@@ -16,8 +16,8 @@ struct Parameters
     R::Int64
     NS::Int64
     ND::Int64
-    σS::Int64
-    σD::Int64
+    σS::Float64
+    σD::Float64
     μψ::Float64
     τψ::Float64
     ΔS::Float64
@@ -26,13 +26,13 @@ end
 
 function Parameters(;
     Ω =     20,
-    R =     40,
+    R =     80,
     NS =    16,
-    ND =    8,
-    σS =    6,
-    σD =    2,
-    uψ =    2,
-    tψ =    2)
+    ND =    6,
+    σS =    12,
+    σD =    2π/9,
+    uψ =    0.01,
+    tψ =    400)
     Parameters(
         Ω,
         R,
