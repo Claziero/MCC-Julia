@@ -1,15 +1,14 @@
 """
-Plots the cylinder of the minutia `min_num` in the list `min_list`.
+Plots the cylinder of the minutia `cyl_num` in the list `cyl_list`.
 Highlights the point (`hi`, `hj`) in the cylinder.
 # Parameters:
-- `img::Matrix`: The original image.
-- `min_num::Int64`: The index of the minutia to plot.
-- `min_list::Vector{Minutia}`: The list of minutiae.
+- `cyl_num::Int64`: The index of the cylinder to plot.
+- `cyl_list::Vector{Cylinder}`: The list of cylinders.
 - `hi::Int64`: The i coordinate of the point to highlight.
 - `hj::Int64`: The j coordinate of the point to highlight.
 """
-function plot_cylinder(img::Matrix, min_num::Int64, min_list::Vector{Minutia}, hi=8, hj=8; pms::Parameters=params)::Matrix{RGB}
-    @assert min_num in 1:length(min_list)
+function plot_cylinder(cyl_num::Int64, cyl_list::Vector{Cylinder}, hi=8, hj=8; pms::Parameters=params)::Matrix{RGB}
+    @assert cyl_num in 1:length(cyl_list)
     @assert hi in 1:pms.NS
     @assert hj in 1:pms.NS
 
@@ -27,9 +26,14 @@ function plot_cylinder(img::Matrix, min_num::Int64, min_list::Vector{Minutia}, h
     # Cylinder slice size
     CYLINDER_SIZE = 240
 
+    # Get the minutiae list from the list of cylinders
+    min_list = []
+    for cyl in cyl_list
+        push!(min_list, cyl.minutia)
+    end
 
     # Center minutia to show in the image slice
-    min = min_list[min_num]
+    min = min_list[cyl_num]
 
     # Get the minutiae to display that are part of the slice
     inoffset = filter(m -> m.x in (min.x-OFFSET):(min.x+OFFSET) && m.y in (min.y-OFFSET):(min.y+OFFSET), min_list)
@@ -109,7 +113,7 @@ function plot_cylinder(img::Matrix, min_num::Int64, min_list::Vector{Minutia}, h
         draw!(diagram, CirclePointRadius(Point(x, y), RADIUS - 2), color)
     end
 
-    cylinder = cylinder_set(img, min_list)[min_num]
+    cylinder = cyl_list[cyl_num].cuboid
 
     # Create an image for each cylinder
     cylimgs = []

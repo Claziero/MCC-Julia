@@ -102,8 +102,12 @@ function center(i::Int64, j::Int64, m::Minutia; pms::Parameters=params)::Point_i
     Point_ij(tf)
 end
 
-""" Compute the euclidean distance between a minutia and a point. """
+"""
+Compute the euclidean distance between a minutia and a point
+or between two minutiae. 
+"""
 @inline dist(a::Minutia, b::Point_ij) = sqrt((a.x - b.x)^2 + (a.y - b.y)^2)
+@inline dist(a::Minutia, b::Minutia) = sqrt((a.x - b.x)^2 + (a.y - b.y)^2)
 
 """
 Compute the spatial contribution that the minutia `m_t` gives to cell (i, j, k)
@@ -292,9 +296,9 @@ function cylinder_set(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=
         # Check if the cylinder is invalid
         count(m -> m != min && dist(m, min) <= pms.R + 3pms.σS, minutiae) < pms.minM && continue
         cyl = cylinder(hull, min, minutiae; pms)
-        sum(cyl .== -1) < pms.minVC && continue
+        sum(cyl.cuboid .== -1) < pms.minVC && continue
 
-        push!(set, Cylinder(min, cyl))
+        push!(set, cyl)
     end
 
     set
