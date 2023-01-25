@@ -19,12 +19,12 @@ frequencies in the image, so for best results it correlates directly with the si
 struct FingerprintEnhancementOptions
     target_width::Int64
     angle_increment::Int64
-    kx::Float64
-    ky::Float64
-    block_sigma::Float64
-    gradient_sigma::Float64
-    orient_smooth_sigma::Float64
-    freq_value::Float64
+    kx::Float32
+    ky::Float32
+    block_sigma::Float32
+    gradient_sigma::Float32
+    orient_smooth_sigma::Float32
+    freq_value::Float32
     add_border::Bool
 end
 
@@ -61,7 +61,7 @@ Creates a gaussian filter with the given standard deviation.
 
 Sets its size to be 6σ, rounded to the nearest odd integer.
 """
-function gaussian_filter(σ::Float64)::Matrix{Float64}
+function gaussian_filter(σ::Float32)::Matrix{Float32}
     # Set the size
     sze = 6 * round(Int, σ)
     sze % 2 == 0 && (sze += 1)
@@ -77,7 +77,7 @@ end
 """
 Compute the gradient in the x and y directions of the image
 """
-function gradient(image::Matrix{Float64})
+function gradient(image::Matrix{Float32})
     gradx = zeros(size(image))
     grady = zeros(size(image))
 
@@ -110,7 +110,7 @@ end
 First step of the enhancement algorithm: used to maximize the contrast between
 ridge and valley regions in the image.
 """
-function normalize_image(image::Matrix{Float64}, req_mean::Float64, req_var::Float64)::Matrix{Float64}
+function normalize_image(image::Matrix{Float32}, req_mean::Float32, req_var::Float32)::Matrix{Float32}
     image_mean = mean(image)
     normalized_image = image .- image_mean
     image_std = std(normalized_image)
@@ -126,14 +126,14 @@ Estimate orientation field of fingerprint ridges.
 Returns an image with the same size as the input image, where each pixel
 contains the orientation of the ridge at that point (in radians).
 """
-function orient_ridge(image::Matrix{Float64}; opts::FingerprintEnhancementOptions = default_options)::Matrix{Float64}
+function orient_ridge(image::Matrix{Float32}; opts::FingerprintEnhancementOptions = default_options)::Matrix{Float32}
     gauss_kernel = gaussian_filter(opts.gradient_sigma)
 
     # TODO Decide the best method (comment the other one)
 
     # 1. Sobel filter (with gaussian smoothing)
-    kernelx = [0 0 0; 0.5 0 -0.5; 0 0 0]
-    kernely = [0 0.5 0; 0 0 0; 0 -0.5 0]
+    kernelx = Float32.([0 0 0; 0.5 0 -0.5; 0 0 0])
+    kernely = Float32.([0 0.5 0; 0 0 0; 0 -0.5 0])
     fx = imfilter(gauss_kernel, kernelx)
     fy = imfilter(gauss_kernel, kernely)
     # 2. Gradient of Gaussian
@@ -181,12 +181,12 @@ function orient_ridge(image::Matrix{Float64}; opts::FingerprintEnhancementOption
 end
 
 
-FILTERS_CACHE = Dict{Tuple{Float64, Float64, Float64, Int64}, Vector{Matrix{Float64}}}()
+FILTERS_CACHE = Dict{Tuple{Float32, Float32, Float32, Int64}, Vector{Matrix{Float32}}}()
 
 """
 Computes the Gabor filter with all orientations for the given frequency.
 """
-function compute_filters(; opts::FingerprintEnhancementOptions)::Vector{Matrix{Float64}}
+function compute_filters(; opts::FingerprintEnhancementOptions)::Vector{Matrix{Float32}}
     unfreq = opts.freq_value
 
     # Check if we already have the filters for this frequency
@@ -194,8 +194,7 @@ function compute_filters(; opts::FingerprintEnhancementOptions)::Vector{Matrix{F
         return FILTERS_CACHE[(unfreq, opts.kx, opts.ky, opts.angle_increment)]
     end
 
-    filters = Vector{Matrix{Float64}}()
-    println("Computing Gabor filters... (f=$(unfreq), kx=$(opts.kx), ky=$(opts.ky), Δα=$(opts.angle_increment))")
+    filters = Vector{Matrix{Float32}}()
 
     # This frequency index looks like something that would be used if
     # we had a frequency image, but we don't, so we just use a single
@@ -222,16 +221,13 @@ function compute_filters(; opts::FingerprintEnhancementOptions)::Vector{Matrix{F
         θ = deg2rad(angle + 90)
         # Rotate the reference filter
         rot = imrotate(reff, θ, axes(reff), 0)
-        # # Replace NaN values with 0
-        # replace!(rot, NaN=>0)
 
         # Add the filter to the list
-        push!(filters, rot)
+        push!(filters, Float32.(rot))
     end
 
     # Cache the filters
     FILTERS_CACHE[(unfreq, opts.kx, opts.ky, opts.angle_increment)] = filters
-    println("Done!")
 
     filters
 end
@@ -244,7 +240,7 @@ image and frequency. The output is final enhanced image.
 In this approach, a constant frequency is used instead of a variable frequency, thus The
 frequency does not need to be a matrix (and keeping it like that is inefficient).
 """
-function filter_ridge(normim::Matrix{Float64}, orientim::Matrix{Float64}; opts::FingerprintEnhancementOptions = default_options)
+function filter_ridge(normim::Matrix{Float32}, orientim::Matrix{Float32}; opts::FingerprintEnhancementOptions = default_options)
     # Create the output image
     rows, cols = size(normim)
     enhanced_image = zeros(rows, cols)
@@ -293,13 +289,13 @@ function enhance_fingerprints(input_image::Matrix{T}; opts::FingerprintEnhanceme
     target_height = round(Int64, height * opts.target_width / width)
     input_image = imresize(input_image, (target_height, opts.target_width))
 
-    input_image = Float64.(input_image)
+    input_image = Float32.(input_image)
 
     # Perform median blurring to smooth the image
     blurred_image = mapwindow(median, input_image, (3, 3))
 
     # Perform normalization using the method provided in the paper
-    normalized_image = normalize_image(blurred_image, 0.0, 1.0)
+    normalized_image = normalize_image(blurred_image, 0.0f0, 1.0f0)
 
     # Calculate ridge orientation field
     orientation_image = orient_ridge(normalized_image; opts=opts)
