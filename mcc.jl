@@ -8,6 +8,10 @@ Constants for the MCC algorithm:
 - `σD`: Directional standard deviation
 - `μψ`: Mean of the sigmoid function
 - `τψ`: Parameter of the sigmoid function
+- `minVC`: Minimum number of cells in a minutia cylinder
+- `minM`: Minimum number of minutiae contributing to the cylinder
+- `minME`: Minimum number of matching elements between two cylinders
+- `δθ`: Maximum directional difference between two minutiae
 - `ΔS`: Cell size along one direction of the cuboid base
 - `ΔD`: Cell size along the cuboid height
 """
@@ -20,6 +24,10 @@ struct Parameters
     σD::Float64
     μψ::Float64
     τψ::Float64
+    minVC::Int64
+    minM::Int64
+    minME::Int64
+    δθ::Float64
     ΔS::Float64
     ΔD::Float64
 end
@@ -32,7 +40,11 @@ function Parameters(;
     σS =    12,
     σD =    2π/9,
     uψ =    0.01,
-    tψ =    400)
+    tψ =    400,
+    minVC = NS * NS * ND ÷ 3,
+    minM =  5,
+    minME = 5,
+    δθ =    2π/3)
     Parameters(
         Ω,
         R,
@@ -42,6 +54,10 @@ function Parameters(;
         σD,
         uψ,
         tψ,
+        minVC,
+        minM,
+        minME,
+        δθ,
         2R / NS,
         2π / ND)
 end
@@ -57,6 +73,14 @@ struct Point_ij
     y::Float64
 
     Point_ij(p::Vector{Float64}) = new(p[1], p[2])
+end
+
+""" Struct representing a cylinder with its associated minutia. """
+struct Cylinder
+    minutia::Minutia
+    cuboid::Array{Float64, 3}
+
+    Cylinder(m::Minutia, c::Array{Float64, 3}) = new(m, c)
 end
 
 """ Compute the angle associated with all cells at height `k`. """
@@ -228,8 +252,8 @@ Create a cylinder for the minutia `m`.
 - `m::Minutia`: The minutia feature.
 - `minutiae::Vector{Minutia}`: The set of minutiae of the image.
 """
-function cylinder(hull::Matrix, m::Minutia, minutiae::Vector{Minutia}; pms::Parameters=params)::Array{Float64, 3}
-    cylinder = zeros(pms.NS, pms.NS, pms.ND)
+function cylinder(hull::Matrix, m::Minutia, minutiae::Vector{Minutia}; pms::Parameters=params)::Cylinder
+    cyl = zeros(pms.NS, pms.NS, pms.ND)
 
     for i in 1:pms.NS, j in 1:pms.NS
         # Compute the point and its neighborhood N_p of minutiae
@@ -239,19 +263,19 @@ function cylinder(hull::Matrix, m::Minutia, minutiae::Vector{Minutia}; pms::Para
         for k in 1:pms.ND
             # The contribution for this cell is set to -1 (invalid) if the point is not valid
             if !isvalid(m, p, hull) 
-                cylinder[i, j, k] = -1.0
+                cyl[i, j, k] = -1.0
                 continue
             end
             
             # Else compute the contributions of the minutiae in the neighborhood N_p of point p
             angle = height2angle(k; pms)
             v = sum([spatial_contribution(m_t, p; pms) * directional_contribution(m_t, m, angle; pms) for m_t in N_p])
-            cylinder[i, j, k] = 1 / (1 + exp(-pms.τψ * (v - pms.μψ)))
+            cyl[i, j, k] = 1 / (1 + exp(-pms.τψ * (v - pms.μψ)))
         end
     end
 
     # Return the cylinder
-    cylinder
+    Cylinder(m, cyl)
 end
 
 """
@@ -260,13 +284,83 @@ Create the cylinder set for the image.
 - `image::Matrix`: The original image.
 - `minutiae::Vector{Minutia}`: The set of minutiae of the image.
 """
-function cylinder_set(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=params)::Vector{Array{Float64, 3}}
+function cylinder_set(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=params)::Vector{Cylinder}
     hull = extended_convex_hull_image(image, minutiae; pms)
 
     set = []
     for min in minutiae
-        push!(set, cylinder(hull, min, minutiae; pms))
+        # Check if the cylinder is invalid
+        count(m -> m != min && dist(m, min) <= pms.R + 3pms.σS, minutiae) < pms.minM && continue
+        cyl = cylinder(hull, min, minutiae; pms)
+        sum(cyl .== -1) < pms.minVC && continue
+
+        push!(set, Cylinder(min, cyl))
     end
 
     set
+end
+
+""" Linearize the cylinder cell indices. """
+@inline linearize(i::Int64, j::Int64, k::Int64; pms::Parameters=params) = (k - 1)pms.NS^2 + (j - 1)pms.NS + i
+
+"""
+Vectorize the cylinder `cylinder`.
+# Parameters:
+- `cylinder::Array{Float64, 3}`: The cylinder to vectorize.
+"""
+function vectorize(cylinder::Array{Float64, 3}; pms::Parameters=params)::Vector{Float64}
+    vec = zeros(pms.NS^2 * pms.ND)
+    for i in 1:pms.NS, j in 1:pms.NS, k in 1:pms.ND
+        vec[linearize(i, j, k; pms)] = cylinder[i, j, k]
+    end
+    vec
+end
+
+"""
+Compute the vectors c_a|b and c_b|a necessary to compute similarity.
+# Parameters:
+- `c_a::Vector{Float64}`: The vectorized cylinder of minutia a.
+- `c_b::Vector{Float64}`: The vectorized cylinder of minutia b.
+"""
+function aux_vectors(c_a::Vector{Float64}, c_b::Vector{Float64})::Tuple{Vector{Float64}, Vector{Float64}, Int64}
+    c_ab = c_ba = zeros(length(c_a))
+    count = 0
+
+    for t in 1:length(c_a)
+        if c_a[t] != -1 && c_b[t] != -1
+            c_ab[t] = c_a[t]
+            c_ba[t] = c_b[t]
+            count += 1
+        else
+            c_ab[t] = c_ba[t] = 0
+        end
+    end
+
+    (c_ab, c_ba, count)
+end
+
+"""
+Compute the similarity between two cylinders. Returns a value in [0, 1].
+# Parameters:
+- `Cyl_a::Cylinder`: The first cylinder.
+- `Cyl_b::Cylinder`: The second cylinder.
+"""
+function similarity(Cyl_a::Cylinder, Cyl_b::Cylinder; pms::Parameters=params)::Float64
+    # Compute the vectorized cylinders
+    vec_a = vectorize(Cyl_a.cuboid; pms)
+    vec_b = vectorize(Cyl_b.cuboid; pms)
+
+    # Check if the cylinders are matchable
+    # TODO Remove the "[1]" when the Minutia struct is updated
+    angles_difference(vec_a.minutia.θ[1], vec_b.minutia.θ[1]; pms) > pms.δθ && return 0
+    
+    c_ab, c_ba, count = aux_vectors(vec_a, vec_b)
+    count < pms.minME && return 0
+
+    norm_ab = norm(c_ab)
+    norm_ba = norm(c_ba)
+    norm_ab + norm_ba == 0 && return 0
+    
+    # Compute the similarity
+    1 - (norm(c_ab - c_ba) / (norm_ab + norm_ba))
 end

@@ -11,7 +11,7 @@ using SpecialFunctions: erf
 
 export enhance_fingerprints, FingerprintEnhancementOptions
 export extract_features
-export cylinder_set
+export cylinder_set, similarity
 export plot_cylinder
 
 include("./fingerprint_enhancement.jl")
