@@ -181,27 +181,26 @@ function orient_ridge(image::Matrix{Float64}; opts::FingerprintEnhancementOption
 end
 
 
-"""
-Performing Gabor filtering for enhancement using previously calculated orientation
-image and frequency. The output is final enhanced image.
+FILTERS_CACHE = Dict{Tuple{Float64, Float64, Float64, Int64}, Vector{Matrix{Float64}}}()
 
-In this approach, a constant frequency is used instead of a variable frequency, thus The
-frequency does not need to be a matrix (and keeping it like that is inefficient).
 """
-function filter_ridge(normim::Matrix{Float64}, orientim::Matrix{Float64}, freq::Matrix{Float64}; opts::FingerprintEnhancementOptions = default_options)
-    # Create the output image
-    rows, cols = size(normim)
-    enhanced_image = zeros(rows, cols)
+Computes the Gabor filter with all orientations for the given frequency.
+"""
+function compute_filters(; opts::FingerprintEnhancementOptions)::Vector{Matrix{Float64}}
+    unfreq = opts.freq_value
 
-    # Whatever, since we use a flat frequency image (with a default frequency)
-    # which can be updated from the config, our frequency is unique.
-    unfreq = freq[1, 1]
+    # Check if we already have the filters for this frequency
+    if haskey(FILTERS_CACHE, (unfreq, opts.kx, opts.ky, opts.angle_increment))
+        return FILTERS_CACHE[(unfreq, opts.kx, opts.ky, opts.angle_increment)]
+    end
+
+    filters = Vector{Matrix{Float64}}()
+    println("Computing Gabor filters... (f=$(unfreq), kx=$(opts.kx), ky=$(opts.ky), Δα=$(opts.angle_increment))")
 
     # This frequency index looks like something that would be used if
     # we had a frequency image, but we don't, so we just use a single
     # value for the frequency.
     # freq_index = ones(100)
-
     sigmax = (1.0 / unfreq) * opts.kx
     sigmaxx = sigmax * sigmax
     sigmay = (1.0 / unfreq) * opts.ky
@@ -210,8 +209,8 @@ function filter_ridge(normim::Matrix{Float64}, orientim::Matrix{Float64}, freq::
     szek = round(Int, 3max(sigmax, sigmay))
 
     # Create the mesh filter for the Gabor filter
-    meshx = [j for i in -szek:szek, j in -szek:szek]
-    meshy = [i for i in -szek:szek, j in -szek:szek]
+    meshx = [j for _ in -szek:szek, j in -szek:szek]
+    meshy = [i for i in -szek:szek, _ in -szek:szek]
 
     pi_by_unfreq_by_2 = 2π * unfreq
 
@@ -219,19 +218,41 @@ function filter_ridge(normim::Matrix{Float64}, orientim::Matrix{Float64}, freq::
     pixval = @. exp(-0.5 * (meshx * meshx / sigmaxx + meshy * meshy / sigmayy))
     reff = pixval .* cos.(pi_by_unfreq_by_2 * meshx)
 
-    # Create the filters
-    filters = Vector{Matrix{Float64}}()
-
     for angle in 0:opts.angle_increment:180-opts.angle_increment
         θ = deg2rad(angle + 90)
         # Rotate the reference filter
-        rot = imrotate(reff, θ, axes(reff))
-        # Replace NaN values with 0
-        replace!(rot, NaN=>0)
+        rot = imrotate(reff, θ, axes(reff), 0)
+        # # Replace NaN values with 0
+        # replace!(rot, NaN=>0)
 
         # Add the filter to the list
         push!(filters, rot)
     end
+
+    # Cache the filters
+    FILTERS_CACHE[(unfreq, opts.kx, opts.ky, opts.angle_increment)] = filters
+    println("Done!")
+
+    filters
+end
+
+
+"""
+Performing Gabor filtering for enhancement using previously calculated orientation
+image and frequency. The output is final enhanced image.
+
+In this approach, a constant frequency is used instead of a variable frequency, thus The
+frequency does not need to be a matrix (and keeping it like that is inefficient).
+"""
+function filter_ridge(normim::Matrix{Float64}, orientim::Matrix{Float64}; opts::FingerprintEnhancementOptions = default_options)
+    # Create the output image
+    rows, cols = size(normim)
+    enhanced_image = zeros(rows, cols)
+
+    # Create the filters
+    filters = compute_filters(; opts=opts)
+    # Get the half size of a filter
+    szek = (size(filters[1])[1] - 1) ÷ 2
 
     # Find indices of matrix points greater than maxsze from the image boundary
     maxsze = szek
@@ -239,8 +260,6 @@ function filter_ridge(normim::Matrix{Float64}, orientim::Matrix{Float64}, freq::
     # Convert orientation matrix values from radians to an index value that
     # corresponds to round(degrees / opts.angle_increment)
     orientindex = round.(Int, orientim / deg2rad(opts.angle_increment), RoundUp)
-    maxorientindex = round(Int, 180 / opts.angle_increment, RoundUp)
-
     for r in maxsze+1:rows-maxsze, c in maxsze+1:cols-maxsze
         subfilter = filters[orientindex[r, c]]
         subim = normim[r-szek:r+szek, c-szek:c+szek]
@@ -285,11 +304,8 @@ function enhance_fingerprints(input_image::Matrix{T}; opts::FingerprintEnhanceme
     # Calculate ridge orientation field
     orientation_image = orient_ridge(normalized_image; opts=opts)
 
-    # Compute the frequency image
-    freq = ones(size(normalized_image)) * opts.freq_value
-    
     # Get the final enhanced image and return it as result
-    enhanced_image = filter_ridge(normalized_image, orientation_image, freq; opts=opts)
+    enhanced_image = filter_ridge(normalized_image, orientation_image; opts=opts)
 
     enhanced_image
 end
