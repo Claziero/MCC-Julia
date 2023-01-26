@@ -327,7 +327,8 @@ Compute the vectors c_a|b and c_b|a necessary to compute similarity.
 - `c_b::Vector{Float64}`: The vectorized cylinder of minutia b.
 """
 function aux_vectors(c_a::Vector{Float64}, c_b::Vector{Float64})::Tuple{Vector{Float64}, Vector{Float64}, Int64}
-    c_ab = c_ba = zeros(length(c_a))
+    c_ab = zeros(length(c_a))
+    c_ba = zeros(length(c_a))
     count = 0
 
     for t in 1:length(c_a)
@@ -356,7 +357,7 @@ function similarity(Cyl_a::Cylinder, Cyl_b::Cylinder; pms::Parameters=params)::F
 
     # Check if the cylinders are matchable
     # TODO Remove the "[1]" when the Minutia struct is updated
-    angles_difference(vec_a.minutia.θ[1], vec_b.minutia.θ[1]; pms) > pms.δθ && return 0
+    angles_difference(Cyl_a.minutia.θ[1], Cyl_b.minutia.θ[1]) > pms.δθ && return 0
     
     c_ab, c_ba, count = aux_vectors(vec_a, vec_b)
     count < pms.minME && return 0
