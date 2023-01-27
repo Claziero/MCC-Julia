@@ -34,17 +34,17 @@ end
 
 function Parameters(;
     Ω =     20,
-    R =     80,
+    R =     70,
     NS =    16,
     ND =    6,
-    σS =    12,
+    σS =    28/3,
     σD =    2π/9,
     uψ =    0.01,
     tψ =    400,
-    minVC = NS * NS * ND ÷ 3,
-    minM =  5,
-    minME = 5,
-    δθ =    2π/3)
+    minVC = round(Int, NS * NS * ND * π/4 * 0.75),
+    minM =  2,
+    minME = 8,
+    δθ =    π/3)
     Parameters(
         Ω,
         R,
@@ -296,7 +296,7 @@ function cylinder_set(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=
         # Check if the cylinder is invalid
         count(m -> m != min && dist(m, min) <= pms.R + 3pms.σS, minutiae) < pms.minM && continue
         cyl = cylinder(hull, min, minutiae; pms)
-        sum(cyl.cuboid .== -1) < pms.minVC && continue
+        sum(cyl.cuboid .!= -1) < pms.minVC && continue
 
         push!(set, cyl)
     end
@@ -304,21 +304,6 @@ function cylinder_set(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=
     set
 end
 
-""" Linearize the cylinder cell indices. """
-@inline linearize(i::Int64, j::Int64, k::Int64; pms::Parameters=params) = (k - 1)pms.NS^2 + (j - 1)pms.NS + i
-
-"""
-Vectorize the cylinder `cylinder`.
-# Parameters:
-- `cylinder::Array{Float64, 3}`: The cylinder to vectorize.
-"""
-function vectorize(cylinder::Array{Float64, 3}; pms::Parameters=params)::Vector{Float64}
-    vec = zeros(pms.NS^2 * pms.ND)
-    for i in 1:pms.NS, j in 1:pms.NS, k in 1:pms.ND
-        vec[linearize(i, j, k; pms)] = cylinder[i, j, k]
-    end
-    vec
-end
 
 """
 Compute the vectors c_a|b and c_b|a necessary to compute similarity.
@@ -328,10 +313,10 @@ Compute the vectors c_a|b and c_b|a necessary to compute similarity.
 """
 function aux_vectors(c_a::Vector{Float64}, c_b::Vector{Float64})::Tuple{Vector{Float64}, Vector{Float64}, Int64}
     c_ab = zeros(length(c_a))
-    c_ba = zeros(length(c_a))
+    c_ba = zeros(length(c_b))
     count = 0
 
-    for t in 1:length(c_a)
+    @inbounds for t in 1:length(c_a)
         if c_a[t] != -1 && c_b[t] != -1
             c_ab[t] = c_a[t]
             c_ba[t] = c_b[t]
@@ -352,12 +337,12 @@ Compute the similarity between two cylinders. Returns a value in [0, 1].
 """
 function similarity(Cyl_a::Cylinder, Cyl_b::Cylinder; pms::Parameters=params)::Float64
     # Compute the vectorized cylinders
-    vec_a = vectorize(Cyl_a.cuboid; pms)
-    vec_b = vectorize(Cyl_b.cuboid; pms)
+    vec_a = reshape(Cyl_a.cuboid, length(Cyl_a.cuboid))
+    vec_b = reshape(Cyl_b.cuboid, length(Cyl_b.cuboid))
 
     # Check if the cylinders are matchable
     # TODO Remove the "[1]" when the Minutia struct is updated
-    angles_difference(Cyl_a.minutia.θ[1], Cyl_b.minutia.θ[1]) > pms.δθ && return 0
+    abs(angles_difference(Cyl_a.minutia.θ[1], Cyl_b.minutia.θ[1])) > pms.δθ && return 0
     
     c_ab, c_ba, count = aux_vectors(vec_a, vec_b)
     count < pms.minME && return 0
