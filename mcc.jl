@@ -1,5 +1,6 @@
 """
 Constants for the MCC algorithm:
+## Cylinder creation section
 - `Ω`: Number of pixels to expand the convex hull of
 - `R`: Radius of the cylinder
 - `NS`: Number of cells along one direction of the cuboid base enclosing the cylinder
@@ -8,12 +9,22 @@ Constants for the MCC algorithm:
 - `σD`: Directional standard deviation
 - `μψ`: Mean of the sigmoid function
 - `τψ`: Parameter of the sigmoid function
+- `ΔS`: Cell size along one direction of the cuboid base
+- `ΔD`: Cell size along the cuboid height
+## Cylinder matching section
 - `minVC`: Minimum number of cells in a minutia cylinder
 - `minM`: Minimum number of minutiae contributing to the cylinder
 - `minME`: Minimum number of matching elements between two cylinders
 - `δθ`: Maximum directional difference between two minutiae
-- `ΔS`: Cell size along one direction of the cuboid base
-- `ΔD`: Cell size along the cuboid height
+## Global score section
+- `μp`: Mean of the sigmoid function
+- `τp`: Parameter of the sigmoid function
+- `minnp`, `maxnp`: Minimum and maximum number of minutiae for the sigmoid function
+- `wr`: Weight parameter
+- `μp1`, `τp1`: Sigmoid parameters for d1
+- `μp2`, `τp2`: Sigmoid parameters for d2
+- `μp3`, `τp3`: Sigmoid parameters for d3
+- `nrel`: Number of relaxation iterations for LSS-R
 """
 struct Parameters
     Ω::Int64
@@ -24,12 +35,24 @@ struct Parameters
     σD::Float64
     μψ::Float64
     τψ::Float64
+    ΔS::Float64
+    ΔD::Float64
     minVC::Int64
     minM::Int64
     minME::Int64
     δθ::Float64
-    ΔS::Float64
-    ΔD::Float64
+    μp::Float64
+    τp::Float64
+    minnp::Int64
+    maxnp::Int64
+    wr::Float64
+    μp1::Float64
+    τp1::Float64
+    μp2::Float64
+    τp2::Float64
+    μp3::Float64
+    τp3::Float64
+    nrel::Int64
 end
 
 function Parameters(;
@@ -44,7 +67,19 @@ function Parameters(;
     minVC = round(Int, NS * NS * ND * π/4 * 0.75),
     minM =  2,
     minME = 8,
-    δθ =    π/3)
+    δθ =    π/3,
+    μp =    20,
+    τp =    2/5,
+    minnp = 4,
+    maxnp = 12,
+    wr =    0.5,
+    μp1 =   5,
+    τp1 =   -8/5,
+    μp2 =   π/12,
+    τp2 =   -30,
+    μp3 =   π/12,
+    τp3 =   -30,
+    nrel =  5)
     Parameters(
         Ω,
         R,
@@ -54,12 +89,24 @@ function Parameters(;
         σD,
         uψ,
         tψ,
+        2R / NS,
+        2π / ND,
         minVC,
         minM,
         minME,
         δθ,
-        2R / NS,
-        2π / ND)
+        μp,
+        τp,
+        minnp,
+        maxnp,
+        wr,
+        μp1,
+        τp1,
+        μp2,
+        τp2,
+        μp3,
+        τp3,
+        nrel)
 end
 
 params = Parameters()
@@ -353,4 +400,102 @@ function similarity(Cyl_a::Cylinder, Cyl_b::Cylinder; pms::Parameters=params)::F
     
     # Compute the similarity
     1 - (norm(c_ab - c_ba) / (norm_ab + norm_ba))
+end
+
+"""
+Compute the sorted similarity vector between two sets of cylinders and returns the top `np` values.
+# Parameters:
+- `set_a::Vector{Cylinder}`: The first set of cylinders.
+- `set_b::Vector{Cylinder}`: The second set of cylinders.
+- `np::Int64`: The number of values to return.
+"""
+function simvector(set_a::Vector{Cylinder}, set_b::Vector{Cylinder}, np::Int64)::Vector{Vector{Float64}}
+    # Compute the local similarities
+    simmatrix = [[similarity(set_a[i], set_b[j]), i, j] for i in 1:length(set_a), j in 1:length(set_b)]
+    
+    # Sort the local similarities
+    vec = reshape(simmatrix, :)
+    topnp = sort(vec; rev=true)[1:np]
+
+    topnp
+end
+
+"""
+Compute the Local Similarity Sort (LSS) score between two sets of cylinders.
+# Parameters:
+- `set_a::Vector{Cylinder}`: The first set of cylinders.
+- `set_b::Vector{Cylinder}`: The second set of cylinders.
+"""
+function lss(set_a::Vector{Cylinder}, set_b::Vector{Cylinder}; pms::Parameters=params)::Float64
+    # Compute the global score of the top np local similarities
+    m = min(length(set_a), length(set_b))
+    np = pms.minnp + round(Int64, (pms.maxnp - pms.minnp) / (1 + exp(-pms.τp * (m - pms.μp))))
+    topnp = simvector(set_a, set_b, np)
+    
+    topvals = [topnp[i][1] for i in 1:length(topnp)]
+    mean(topvals)
+end
+
+"""
+Compute the measure of compatibility between two pairs of minutiae.
+# Parameters:
+- `art::Minutia`, `ark::Minutia`: The first pair of minutiae of template A.
+- `bct::Minutia`, `bck::Minutia`: The second pair of minutiae of template B.
+"""
+function compatibility(art::Minutia, ark::Minutia, bct::Minutia, bck::Minutia; pms::Parameters=params)::Float64
+    # TODO Remove the "[1]" when the Minutia struct is updated
+    d1 = abs(dist(art, ark) - dist(bct, bck))
+    aux1 = angles_difference(art.θ[1], ark.θ[1])
+    aux2 = angles_difference(bct.θ[1], bck.θ[1])
+    d2 = abs(angles_difference(aux1, aux2))
+    aux1 = angles_difference(art.θ[1], atan(-ark.x + art.x, ark.x - art.x))
+    aux2 = angles_difference(bct.θ[1], atan(-bck.x + bct.x, bck.x - bct.x))
+    d3 = abs(angles_difference(aux1, aux2))
+
+    d1 = 1 / (1 + exp(-pms.τp1 * (d1 - pms.μp1)))
+    d2 = 1 / (1 + exp(-pms.τp2 * (d2 - pms.μp2)))
+    d3 = 1 / (1 + exp(-pms.τp3 * (d3 - pms.μp3)))
+
+    d1 * d2 * d3
+end
+
+"""
+Compute the Local Similarity Sort with Relaxation (LSS-R) score between two cylinder sets.
+# Parameters:
+- `set_a::Vector{Cylinder}`: The first set of cylinders.
+- `set_b::Vector{Cylinder}`: The second set of cylinders.
+"""
+function lssr(set_a::Vector{Cylinder}, set_b::Vector{Cylinder}; pms::Parameters=params)::Float64
+    # Compute the global score of the top nr local similarities
+    nr = min(length(set_a), length(set_b))
+    topnr = simvector(set_a, set_b, nr)
+    res = copy(topnr)
+    
+    # Update all the similarities computed in topnr
+    for t in 1:nr
+        λt, it, jt = topnr[t][1], round(Int64, topnr[t][2]), round(Int64, topnr[t][3])
+        for _ in 1:pms.nrel
+            s = 0
+            for k in 1:nr
+                t == k && continue
+                λk, ik, jk = topnr[k][1], round(Int64, topnr[k][2]), round(Int64, topnr[k][3])
+                s += compatibility(set_a[it].minutia, set_a[ik].minutia, set_b[jt].minutia, set_b[jk].minutia; pms) * λk
+            end
+
+            s /= (nr - 1)
+            res[t] = [pms.wr * λt + (1 - pms.wr) * s, it, jt]
+        end
+    end
+    
+    # Compute the vector of the efficiencies
+    eff = [[res[i][1] / topnr[i][1], res[i][2], res[i][3]] for i in 1:nr]
+
+    # Select the np best efficiencies
+    m = min(length(set_a), length(set_b))
+    np = pms.minnp + round(Int64, (pms.maxnp - pms.minnp) / (1 + exp(-pms.τp * (m - pms.μp))))
+    topeff = sort(eff; rev=true)[1:np]
+
+    # Compute the global score
+    topvals = [topeff[i][1] for i in 1:length(topeff)]
+    mean(topvals)
 end
