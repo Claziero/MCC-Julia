@@ -415,9 +415,9 @@ function simvector(set_a::Vector{Cylinder}, set_b::Vector{Cylinder}, np::Int64):
     
     # Sort the local similarities
     vec = reshape(simmatrix, :)
-    topnp = sort(vec; rev=true)[1:np]
+    sort!(vec; rev=true)
 
-    topnp
+    vec[1:np]
 end
 
 """
@@ -432,8 +432,7 @@ function lss(set_a::Vector{Cylinder}, set_b::Vector{Cylinder}; pms::Parameters=p
     np = pms.minnp + round(Int64, (pms.maxnp - pms.minnp) / (1 + exp(-pms.τp * (m - pms.μp))))
     topnp = simvector(set_a, set_b, np)
     
-    topvals = [topnp[i][1] for i in 1:length(topnp)]
-    mean(topvals)
+    mean(v[1] for v in topnp)
 end
 
 """
@@ -473,7 +472,7 @@ function lssr(set_a::Vector{Cylinder}, set_b::Vector{Cylinder}; pms::Parameters=
     
     # Update all the similarities computed in topnr
     for t in 1:nr
-        λt, it, jt = topnr[t][1], round(Int64, topnr[t][2]), round(Int64, topnr[t][3])
+        λt, it, jt = res[t][1], round(Int64, res[t][2]), round(Int64, res[t][3])
         for _ in 1:pms.nrel
             s = 0
             for k in 1:nr
@@ -488,7 +487,7 @@ function lssr(set_a::Vector{Cylinder}, set_b::Vector{Cylinder}; pms::Parameters=
     end
     
     # Compute the vector of the efficiencies
-    eff = [[res[i][1] / topnr[i][1], res[i][2], res[i][3]] for i in 1:nr]
+    eff = [res[i][1] / topnr[i][1] for i in 1:nr]
 
     # Select the np best efficiencies
     m = min(length(set_a), length(set_b))
@@ -496,6 +495,5 @@ function lssr(set_a::Vector{Cylinder}, set_b::Vector{Cylinder}; pms::Parameters=
     topeff = sort(eff; rev=true)[1:np]
 
     # Compute the global score
-    topvals = [topeff[i][1] for i in 1:length(topeff)]
-    mean(topvals)
+    mean(topeff)
 end
