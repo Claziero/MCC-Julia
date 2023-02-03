@@ -142,9 +142,7 @@ with indices `(i, j)` of the minutia `m`.
 - `m::Minutia`: The minutia feature.
 """
 function center(i::Int64, j::Int64, m::Minutia; pms::Parameters=params)::Point_ij
-    # TODO θ in the Minutia type should be a single Float64 value instead of a Vector{Float64}
-    θ = m.θ[1]
-    rot = [cos(θ) sin(θ); -sin(θ) cos(θ)]
+    rot = [cos(m.θ) sin(m.θ); -sin(m.θ) cos(m.θ)]
     tf = rot * [i-(pms.NS+1)/2; j-(pms.NS+1)/2] * pms.ΔS + [m.x; m.y]
     Point_ij(tf)
 end
@@ -184,7 +182,7 @@ Compute the directional contribution of the minutia `m_t` to the minutia `m`.
 - `angle::Float64`: The angle at the height of the cylinder.
 """
 function directional_contribution(m_t::Minutia, m::Minutia, angle::Float64; pms::Parameters=params)::Float64
-    dθ = angles_difference(m.θ[1], m_t.θ[1])
+    dθ = angles_difference(m.θ, m_t.θ)
     dΦ = angles_difference(angle, dθ)
     # Compute the intergral: 
     # ∫exp(-t^2 / (2 * σD^2)) dt / (sqrt(2π) * σD) in the range [dΦ - ΔD/2, dΦ + ΔD/2]
@@ -388,8 +386,7 @@ function similarity(Cyl_a::Cylinder, Cyl_b::Cylinder; pms::Parameters=params)::F
     vec_b = reshape(Cyl_b.cuboid, length(Cyl_b.cuboid))
 
     # Check if the cylinders are matchable
-    # TODO Remove the "[1]" when the Minutia struct is updated
-    abs(angles_difference(Cyl_a.minutia.θ[1], Cyl_b.minutia.θ[1])) > pms.δθ && return 0
+    abs(angles_difference(Cyl_a.minutia.θ, Cyl_b.minutia.θ)) > pms.δθ && return 0
     
     c_ab, c_ba, count = aux_vectors(vec_a, vec_b)
     count < pms.minME && return 0
@@ -442,13 +439,12 @@ Compute the measure of compatibility between two pairs of minutiae.
 - `bct::Minutia`, `bck::Minutia`: The second pair of minutiae of template B.
 """
 function compatibility(art::Minutia, ark::Minutia, bct::Minutia, bck::Minutia; pms::Parameters=params)::Float64
-    # TODO Remove the "[1]" when the Minutia struct is updated
     d1 = abs(dist(art, ark) - dist(bct, bck))
-    aux1 = angles_difference(art.θ[1], ark.θ[1])
-    aux2 = angles_difference(bct.θ[1], bck.θ[1])
+    aux1 = angles_difference(art.θ, ark.θ)
+    aux2 = angles_difference(bct.θ, bck.θ)
     d2 = abs(angles_difference(aux1, aux2))
-    aux1 = angles_difference(art.θ[1], atan(-ark.x + art.x, ark.x - art.x))
-    aux2 = angles_difference(bct.θ[1], atan(-bck.x + bct.x, bck.x - bct.x))
+    aux1 = angles_difference(art.θ, atan(-ark.x + art.x, ark.x - art.x))
+    aux2 = angles_difference(bct.θ, atan(-bck.x + bct.x, bck.x - bct.x))
     d3 = abs(angles_difference(aux1, aux2))
 
     d1 = 1 / (1 + exp(-pms.τp1 * (d1 - pms.μp1)))

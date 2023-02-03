@@ -11,16 +11,19 @@ Struct for minutiae features containing the coordinates and the angles.
 # Fields
 - `x::Int`: X coordinate of the minutiae.
 - `y::Int`: Y coordinate of the minutiae.
-- `θ::Vector{Float64}`: Angles in radians.
+- `θ::Float64`: Angle in radians.
 - `type::MinutiaeType`: Type of the minutiae.
 """
 struct Minutia
     x::Int
     y::Int
-    θ::Vector{Float64}
+    θ::Float64
     type::MinutiaeType
 end
 
+function Base.show(io::IO, m::Minutia)
+    print(io, "Minutia at ($(m.x), $(m.y)) with angle $(rad2deg(m.θ))° and type $(m.type)")
+end
 
 """
 Load an image from the given path.
@@ -159,13 +162,47 @@ function clean_minutiae(minutiae::Matrix{Bool})::Matrix{Bool}
 end
 
 """
+Function to extract a single angle out of the three angles
+computed in a bifurcation block.
+"""
+@inline function single_angle(a::Float64, b::Float64, c::Float64)::Float64
+    # Put the angles in the range [0, 2π]
+    a = mod(a, 2π)
+    b = mod(b, 2π)
+    c = mod(c, 2π)
+
+    # Reorder the angles in ascending order
+    x1 = min(a, b, c)
+    x3 = max(a, b, c)
+    # Fast and should not overflow if the angles are in radians
+    x2 = a + b + c - x1 - x3 
+
+    # Compute the three angle differences
+    # Between x1 and x2 => if smallest return x3
+    d1 = x2 - x1
+    # Between x2 and x3 => if smallest return x1
+    d2 = x3 - x2
+    # Between x3 and x1 => if smallest return x2
+    d3 = x1 + 2π - x3
+
+    # Return the angle opposite to the smallest angle difference
+    if d1 < d2 && d1 < d3
+        x3
+    elseif d2 < d1 && d2 < d3
+        x1
+    else
+        x2
+    end
+end
+
+"""
 Function to compute the angle of the minutia feature.
-Returns a vector of angles in degrees.
+Returns a vector of angles in radians.
 # Arguments
 - `block::Matrix{Bool}`: Block of the image containing the minutia.
 - `min_type::Minutia`: Type of the minutia.
 """
-function compute_angle(block::Matrix{Bool}, min_type::MinutiaeType)::Union{Nothing, Vector{Float64}}
+function compute_angle(block::Matrix{Bool}, min_type::MinutiaeType)::Union{Nothing, Float64}
     rows, cols = size(block)
     @assert rows == cols
 
@@ -184,18 +221,17 @@ function compute_angle(block::Matrix{Bool}, min_type::MinutiaeType)::Union{Nothi
         length(positions) != 1 && return nothing
 
         # Return the angle of the found point
-        angle = -atan(positions[1][2] - center_y, positions[1][1] - center_x)
-        [angle]
-        
+        -atan(positions[1][2] - center_y, positions[1][1] - center_x)
     elseif min_type == BIFURCATION
         # If there are more or less than three angles found, then the minutia is not a bifurcation
         length(positions) != 3 && return nothing
 
         # Return the angle of the found points
-        angle1 = -atan(positions[1][2] - center_y, positions[1][1] - center_x)
-        angle2 = -atan(positions[2][2] - center_y, positions[2][1] - center_x)
-        angle3 = -atan(positions[3][2] - center_y, positions[3][1] - center_x)
-        [angle1, angle2, angle3]
+        a = -atan(positions[1][2] - center_y, positions[1][1] - center_x)
+        b = -atan(positions[2][2] - center_y, positions[2][1] - center_x)
+        c = -atan(positions[3][2] - center_y, positions[3][1] - center_x)
+
+        single_angle(a, b, c)
     end
 end
 
