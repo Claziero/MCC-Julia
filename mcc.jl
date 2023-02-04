@@ -125,9 +125,9 @@ end
 """ Struct representing a cylinder with its associated minutia. """
 struct Cylinder
     minutia::Minutia
-    cuboid::Array{Float64, 3}
 
-    Cylinder(m::Minutia, c::Array{Float64, 3}) = new(m, c)
+    flat_cylinder::BitVector
+    flat_invalid::BitVector
 end
 
 """ Compute the angle associated with all cells at height `k`. """
@@ -323,8 +323,15 @@ function cylinder(hull::Matrix, m::Minutia, minutiae::Vector{Minutia}; pms::Para
         end
     end
 
+    # Flatten the cylinder
+    cyl = reshape(cyl, pms.NS * pms.NS * pms.ND)
+    # Set the correct cells
+    values = cyl .>= 0.5
+    # Get the invalid cells
+    invalid = cyl .== -1
+
     # Return the cylinder
-    Cylinder(m, cyl)
+    Cylinder(m, values, invalid)
 end
 
 """
@@ -340,8 +347,9 @@ function cylinder_set(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=
     for min in minutiae
         # Check if the cylinder is invalid
         count(m -> m != min && dist(m, min) <= pms.R + 3pms.σS, minutiae) < pms.minM && continue
-        cyl = cylinder(hull, min, minutiae; pms)
-        sum(cyl.cuboid .!= -1) < pms.minVC && continue
+        cyl::Cylinder = cylinder(hull, min, minutiae; pms)
+        # Check if the cylinder is valid
+        count(.!(cyl.flat_invalid)) < pms.minVC && continue
 
         push!(set, cyl)
     end
@@ -349,54 +357,37 @@ function cylinder_set(image::Matrix, minutiae::Vector{Minutia}; pms::Parameters=
     set
 end
 
-
-"""
-Compute the vectors c_a|b and c_b|a necessary to compute similarity.
-# Parameters:
-- `c_a::Vector{Float64}`: The vectorized cylinder of minutia a.
-- `c_b::Vector{Float64}`: The vectorized cylinder of minutia b.
-"""
-function aux_vectors(c_a::Vector{Float64}, c_b::Vector{Float64})::Tuple{Vector{Float64}, Vector{Float64}, Int64}
-    c_ab = zeros(length(c_a))
-    c_ba = zeros(length(c_b))
-    count = 0
-
-    @inbounds for t in 1:length(c_a)
-        if c_a[t] != -1 && c_b[t] != -1
-            c_ab[t] = c_a[t]
-            c_ba[t] = c_b[t]
-            count += 1
-        else
-            c_ab[t] = c_ba[t] = 0
-        end
-    end
-
-    (c_ab, c_ba, count)
-end
-
 """
 Compute the similarity between two cylinders. Returns a value in [0, 1].
 # Parameters:
-- `Cyl_a::Cylinder`: The first cylinder.
-- `Cyl_b::Cylinder`: The second cylinder.
+- `cyl_a::Cylinder`: The first cylinder.
+- `cyl_b::Cylinder`: The second cylinder.
 """
-function similarity(Cyl_a::Cylinder, Cyl_b::Cylinder; pms::Parameters=params)::Float64
-    # Compute the vectorized cylinders
-    vec_a = reshape(Cyl_a.cuboid, length(Cyl_a.cuboid))
-    vec_b = reshape(Cyl_b.cuboid, length(Cyl_b.cuboid))
-
+function similarity(cyl_a::Cylinder, cyl_b::Cylinder; pms::Parameters=params)::Float64
+    # Do not check cylinders for minutiae with different types
+    cyl_a.minutia.type != cyl_b.minutia.type && return 0
     # Check if the cylinders are matchable
-    abs(angles_difference(Cyl_a.minutia.θ, Cyl_b.minutia.θ)) > pms.δθ && return 0
-    
-    c_ab, c_ba, count = aux_vectors(vec_a, vec_b)
+    abs(angles_difference(cyl_a.minutia.θ, cyl_b.minutia.θ)) > pms.δθ && return 0
+
+    vec_a = cyl_a.flat_cylinder
+    inv_a = cyl_a.flat_invalid
+    vec_b = cyl_b.flat_cylinder
+    inv_b = cyl_b.flat_invalid
+
+    # Get the spots where one is invalid
+    invalid = inv_a .| inv_b
+    count = sum(.!invalid)
     count < pms.minME && return 0
+
+    c_ab = vec_a .& .!invalid
+    c_ba = vec_b .& .!invalid
 
     norm_ab = norm(c_ab)
     norm_ba = norm(c_ba)
     norm_ab + norm_ba == 0 && return 0
-    
+
     # Compute the similarity
-    1 - (norm(c_ab - c_ba) / (norm_ab + norm_ba))
+    1 - (norm(c_ab .⊻ c_ba) / (norm_ab + norm_ba))
 end
 
 """
