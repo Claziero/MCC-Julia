@@ -53,7 +53,7 @@ function plot_cylinder(cyl_num::Int64, cyl_list::Vector{Cylinder}, hi=8, hj=8; p
         Point(x, y)
     end
 
-    θ = min.θ[1]
+    θ = min.θ
     rot = [cos(θ) sin(θ); -sin(θ) cos(θ)]
 
     begin
@@ -75,7 +75,7 @@ function plot_cylinder(cyl_num::Int64, cyl_list::Vector{Cylinder}, hi=8, hj=8; p
     # Draw the cylinder slices
     for i in 1:pms.NS, j in 1:pms.NS
         # Quit if you're not inside of the circle
-        (i-(pms.NS+1)/2)^2 + (j-(pms.NS+1)/2)^2 > (pms.NS/2+1/2)^2 && continue
+        (i-(pms.NS+1)/2)^2 + (j-(pms.NS+1)/2)^2 <= (pms.NS/2+1/2)^2 - 8 || continue
 
         point1 = rot * [i-(pms.NS+2)/2, j-(pms.NS+2)/2] * pms.ΔS + [min.x, min.y]
         point2 = point1 + rot * [pms.ΔS, 0]
@@ -103,7 +103,7 @@ function plot_cylinder(cyl_num::Int64, cyl_list::Vector{Cylinder}, hi=8, hj=8; p
         color = m === min ? RGB(1, 0, 0) : RGB(0, 0, 1)
 
         # Draw the direction around each minutia as a line
-        angle = -m.θ[1]
+        angle = -m.θ
         dx = round(Int, cos(angle) * 3RADIUS)
         dy = round(Int, sin(angle) * 3RADIUS)
         draw!(diagram, LineSegment(Point(x, y), Point(x + dx, y + dy)), color)
@@ -113,17 +113,19 @@ function plot_cylinder(cyl_num::Int64, cyl_list::Vector{Cylinder}, hi=8, hj=8; p
         draw!(diagram, CirclePointRadius(Point(x, y), RADIUS - 2), color)
     end
 
-    cylinder = cyl_list[cyl_num].cuboid
+    cylinder = reshape(cyl_list[cyl_num].flat_cylinder, pms.NS, pms.NS, pms.ND)
+    invalids = reshape(cyl_list[cyl_num].flat_invalid, pms.NS, pms.NS, pms.ND)
+    
 
     # Create an image for each cylinder
     cylimgs = []
     for k in 1:pms.ND
         img = ones(RGB, pms.NS, pms.NS)
         for j in 1:pms.NS, i in 1:pms.NS
-            if cylinder[i, j, k] > 0
-                img[i, j] = RGB(cylinder[i, j, k])
+            if invalids[i, j, k] == 1
+                img[i, j] = RGB(0.5)
             else
-                img[i, j] = RGB(1)
+                img[i, j] = RGB(cylinder[i, j, k])
             end
         end
 
@@ -152,8 +154,10 @@ function plot_cylinder(cyl_num::Int64, cyl_list::Vector{Cylinder}, hi=8, hj=8; p
 
 
         # Find hi and hj on the printed image
-        hi2 = rmap(hj, 1:pms.NS, x:x+15pms.NS)
-        hj2 = rmap(hi, 1:pms.NS, y:y+15pms.NS)
+        # hi2 = rmap(hj, 1:pms.NS, x+5:x+15pms.NS+5)
+        # hj2 = rmap(hi, 1:pms.NS, y+5:y+15pms.NS+5)
+        hi2 = rmap(hj, 1:pms.NS, x+7:x+15pms.NS-8)
+        hj2 = rmap(hi, 1:pms.NS, y+7:y+15pms.NS-8)
 
         # Draw a circle around the hi and hj
         draw!(diagram, CirclePointRadius(Point(hi2, hj2), 5), RGB(0.5, 1, 0))
