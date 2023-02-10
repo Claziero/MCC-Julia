@@ -235,7 +235,6 @@ function open_set_results(probes_by_tid, thresholds, img_width=1024)
     FAs, GAs, GRs, FRs, DIRs
 end
 
-
 ### Code for closed set identification evaluation
 """
 Computes the Cumulative Match Characteristic (CMC) curve
@@ -255,8 +254,6 @@ function cmc_curve(probes_by_tid, img_width=1024)
     rr = cms[1]
     rr, plot(cms, xlabel="Rank", ylabel="identification probability", title="Cumulative Match Characteristic", ylim=(0, 1), xlim=(1, 64), legend=:none)
 end
-
-
 
 parse_settings = ArgParseSettings()
 @add_arg_table parse_settings begin
@@ -400,4 +397,3 @@ else
     println("Unknown command '$command'")
     exit(1)
 end
-

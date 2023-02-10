@@ -1,6 +1,3 @@
-# TODO Add credits to paper and original code authors
-
-
 """
 Options for the fingerprint enhancement algorithm:
 + `target_width`: the width of the enhanced image 
@@ -53,9 +50,6 @@ end
 
 default_options = FingerprintEnhancementOptions()
 
-
-
-
 """
 Creates a gaussian filter with the given standard deviation.
 
@@ -103,9 +97,6 @@ function gradient(image::Matrix{Float32})
     return gradx, grady
 end
 
-
-
-
 """
 First step of the enhancement algorithm: used to maximize the contrast between
 ridge and valley regions in the image.
@@ -129,15 +120,11 @@ contains the orientation of the ridge at that point (in radians).
 function orient_ridge(image::Matrix{Float32}; opts::FingerprintEnhancementOptions = default_options)::Matrix{Float32}
     gauss_kernel = gaussian_filter(opts.gradient_sigma)
 
-    # TODO Decide the best method (comment the other one)
-
-    # 1. Sobel filter (with gaussian smoothing)
+    # Sobel filter (with gaussian smoothing)
     kernelx = Float32.([0 0 0; 0.5 0 -0.5; 0 0 0])
     kernely = Float32.([0 0.5 0; 0 0 0; 0 -0.5 0])
     fx = imfilter(gauss_kernel, kernelx)
     fy = imfilter(gauss_kernel, kernely)
-    # 2. Gradient of Gaussian
-    # fx, fy = gradient(gauss_kernel)
 
     # Gradient of the image
     gradx = imfilter(image, fx)
@@ -232,7 +219,6 @@ function compute_filters(; opts::FingerprintEnhancementOptions)::Vector{Matrix{F
     filters
 end
 
-
 """
 Performing Gabor filtering for enhancement using previously calculated orientation
 image and frequency. The output is final enhanced image.
@@ -276,7 +262,6 @@ function filter_ridge(normim::Matrix{Float32}, orientim::Matrix{Float32}; opts::
     enhanced_image
 end
 
-
 """
 Perform Gabor filter based image enhancement using orientation field and frequency.
 """
@@ -305,5 +290,3 @@ function enhance_fingerprints(input_image::Matrix{T}; opts::FingerprintEnhanceme
 
     enhanced_image
 end
-
-
