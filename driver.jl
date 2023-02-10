@@ -1,4 +1,4 @@
-include("./FingerprintMatching.jl")
+include("./src/FingerprintMatching.jl")
 using .FingerprintMatching
 
 using Images
